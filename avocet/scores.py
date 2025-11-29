@@ -12,6 +12,7 @@ from .region import (
     L2BallRegion,
     LinfBallRegion,
     PredictionRegion,
+    UnionRegion,
 )
 
 
