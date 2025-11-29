@@ -67,6 +67,11 @@ class PredictionRegion(abc.ABC):
         vol_box = float(np.prod(high - low))
         return vol_box * float(mask.mean())
 
+    @abc.abstractmethod
+    def support_function(self, direction) -> "cp.Expression":
+        """Support function h_R(direction) = max_{theta in R} <direction, theta>."""
+        ...
+
     @staticmethod
     def l2_ball(center: np.ndarray, radius: float) -> "PredictionRegion":
         return L2BallRegion(center=center, radius=radius)
@@ -123,6 +128,14 @@ class L2BallRegion(PredictionRegion):
         d = self.center.shape[-1]
         return _ball_volume_unit(d) * (self.radius**d)
 
+    def support_function(self, direction) -> "cp.Expression":
+        if cp is None:
+            raise ImportError("cvxpy is required for support_function.")
+        if not isinstance(direction, cp.Expression):
+            direction = cp.Constant(direction)
+        base = direction @ self.center
+        return base + self.radius * cp.norm(direction, 2)
+
 
 class L1BallRegion(PredictionRegion):
     def __init__(self, center: np.ndarray, radius: float):
@@ -163,6 +176,14 @@ class L1BallRegion(PredictionRegion):
         d = self.center.shape[-1]
         return (2**d / math.factorial(d)) * (self.radius**d)
 
+    def support_function(self, direction) -> "cp.Expression":
+        if cp is None:
+            raise ImportError("cvxpy is required for support_function.")
+        if not isinstance(direction, cp.Expression):
+            direction = cp.Constant(direction)
+        base = direction @ self.center
+        return base + self.radius * cp.norm(direction, "inf")
+
 
 class LinfBallRegion(PredictionRegion):
     def __init__(self, center: np.ndarray, radius: float):
@@ -196,6 +217,14 @@ class LinfBallRegion(PredictionRegion):
     def volume(self) -> Optional[float]:
         d = self.center.shape[-1]
         return (2 * self.radius) ** d
+
+    def support_function(self, direction) -> "cp.Expression":
+        if cp is None:
+            raise ImportError("cvxpy is required for support_function.")
+        if not isinstance(direction, cp.Expression):
+            direction = cp.Constant(direction)
+        base = direction @ self.center
+        return base + self.radius * cp.norm(direction, 1)
 
 
 class EllipsoidRegion(PredictionRegion):
@@ -244,6 +273,16 @@ class EllipsoidRegion(PredictionRegion):
             return None
         return _ball_volume_unit(d) * (self.radius**d) / math.sqrt(det)
 
+    def support_function(self, direction) -> "cp.Expression":
+        if cp is None:
+            raise ImportError("cvxpy is required for support_function.")
+        if not isinstance(direction, cp.Expression):
+            direction = cp.Constant(direction)
+        base = direction @ self.center
+        w_inv = np.linalg.inv(self.shape_matrix)
+        quad = cp.quad_form(direction, w_inv)
+        return base + self.radius * cp.sqrt(quad)
+
 
 class UnionRegion(PredictionRegion):
     def __init__(self, regions: Sequence[PredictionRegion]):
@@ -277,6 +316,12 @@ class UnionRegion(PredictionRegion):
 
     def as_union(self) -> Sequence["PredictionRegion"]:
         return list(self.regions)
+
+    def support_function(self, direction) -> "cp.Expression":
+        if cp is None:
+            raise ImportError("cvxpy is required for support_function.")
+        comps = [r.support_function(direction) for r in self.regions]
+        return cp.maximum(*comps)
 
 
 def _ball_volume_unit(d: int) -> float:

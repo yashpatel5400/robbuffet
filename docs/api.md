@@ -16,7 +16,7 @@
   - For unions, use support functions (`support_function`) or scenario-based optimization; no single convex constraint is provided.
 
 ## Robust optimization helpers
-- `support_function(region, direction)`: support of a convex region (union over-approximated by max of components).
+- `region.support_function(direction)`: support of a region (unions take max of component supports).
 - `robustify_affine_objective(base_obj, theta_direction, region)`: add worst-case linear term.
 - `robustify_affine_leq(theta_direction, rhs, region)`: robust linear inequality.
 - `ScenarioRobustOptimizer(decision_shape, objective_fn, constraints_fn=None, num_samples=128, seed=None)`

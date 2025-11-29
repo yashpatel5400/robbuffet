@@ -25,27 +25,7 @@ def support_function(region: PredictionRegion, direction) -> cp.Expression:
     Support function h_R(direction) = max_{theta in R} <direction, theta>.
     Assumes direction is a CVXPY expression or NumPy array.
     """
-    if isinstance(region, UnionRegion):
-        # Exact support of a union is the max of component supports.
-        comps = [support_function(r, direction) for r in region.regions]
-        return cp.maximum(*comps)
-    if not isinstance(direction, cp.Expression):
-        direction = cp.Constant(direction)
-    if isinstance(region, L2BallRegion):
-        base = direction @ region.center
-        return base + region.radius * cp.norm(direction, 2)
-    if isinstance(region, L1BallRegion):
-        base = direction @ region.center
-        return base + region.radius * cp.norm(direction, "inf")
-    if isinstance(region, LinfBallRegion):
-        base = direction @ region.center
-        return base + region.radius * cp.norm(direction, 1)
-    if isinstance(region, EllipsoidRegion):
-        base = direction @ region.center
-        w_inv = np.linalg.inv(region.shape_matrix)
-        quad = cp.quad_form(direction, w_inv)
-        return base + region.radius * cp.sqrt(quad)
-    raise NotImplementedError(f"Support function not implemented for {region.name}")
+    return region.support_function(direction)
 
 
 def robustify_affine_objective(
