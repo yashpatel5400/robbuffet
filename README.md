@@ -4,6 +4,22 @@ Conformal prediction + robust decision making with PyTorch predictors and CVXPY 
 
 **Docs:** https://ypatel.io/avocet/
 
+## Install
+- From PyPI (once published):
+  ```bash
+  pip install avocet
+  ```
+- From source:
+  ```bash
+  git clone https://github.com/your-org/avocet
+  cd avocet
+  pip install .
+  ```
+- Editable + dev extras:
+  ```bash
+  pip install -e .[dev]
+  ```
+
 ## What this package does
 - Calibrate PyTorch predictors with split conformal prediction and geometry-aware score functions.
 - Produce prediction regions (convex or unions) that can be sampled, visualized (1D/2D), or passed to downstream optimizers.

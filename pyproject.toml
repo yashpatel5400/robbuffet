@@ -2,9 +2,10 @@
 name = "avocet"
 version = "0.0.1"
 description = "Conformal prediction and robust decision-making toolkit (PyTorch + CVXPY)"
-authors = [{ name = "Avocet Contributors" }]
+authors = [{ name = "Yash Patel" }]
 readme = "README.md"
 requires-python = ">=3.10"
+license = { file = "LICENSE" }
 dependencies = [
     "numpy>=1.24",
     "torch>=2.1.0",
@@ -12,14 +13,27 @@ dependencies = [
     "matplotlib>=3.7.0",
 ]
 
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: Science/Research",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Topic :: Scientific/Engineering :: Mathematics",
+]
+
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",
+    "build>=1.0.0",
+    "twine>=4.0.0",
 ]
 
 [project.urls]
 homepage = "https://github.com/your-org/avocet"
 repository = "https://github.com/your-org/avocet"
+[tool.setuptools.packages.find]
+include = ["avocet", "avocet.*"]
+exclude = ["tests", "docs", "examples"]
 
 [build-system]
 requires = ["setuptools>=64", "wheel"]
