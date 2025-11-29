@@ -1,0 +1,21 @@
+[project]
+name = "avocet"
+version = "0.0.1"
+description = "Conformal prediction and robust decision-making toolkit (PyTorch + CVXPY)"
+authors = [{ name = "Avocet Contributors" }]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "numpy>=1.24",
+    "torch>=2.1.0",
+    "cvxpy>=1.4.0",
+    "matplotlib>=3.7.0",
+]
+
+[project.urls]
+homepage = "https://github.com/your-org/avocet"
+repository = "https://github.com/your-org/avocet"
+
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
