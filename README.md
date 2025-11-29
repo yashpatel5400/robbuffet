@@ -92,6 +92,7 @@ print(w.value)
 - `examples/robust_l1.py` — L1 ball robust constraint.
 - `examples/robust_linf.py` — Linf (hypercube) robust constraint.
 - `examples/robust_ellipsoid.py` — ellipsoidal robust constraint.
+- `examples/robust_supply_planning.py` — end-to-end: train + calibrate predictor, plot calibration curve, solve robust planning.
 
 Run with `python examples/robust_l2.py` (similar for others).
 
