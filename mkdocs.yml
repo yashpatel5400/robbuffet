@@ -1,0 +1,28 @@
+site_name: Avocet
+site_description: Conformal prediction and robust decision-making toolkit
+repo_url: https://github.com/your-org/avocet
+theme:
+  name: material
+  features:
+    - navigation.expand
+    - navigation.sections
+    - content.code.copy
+    - content.action.edit
+nav:
+  - Home: index.md
+  - Quickstart: quickstart.md
+  - Examples: examples.md
+  - API: api.md
+  - Contributing: contributing.md
+  - Changelog: changelog.md
+markdown_extensions:
+  - admonition
+  - codehilite
+  - toc:
+      permalink: true
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.arithmatex:
+      generic: true
+extra_css:
+  - css/custom.css
