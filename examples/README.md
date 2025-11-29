@@ -46,6 +46,16 @@ subject to  <w, theta> <= 1   for all theta in Theta
 Robust constraint:
 `<w, c> + r * sqrt(w^T W^{-1} w) <= 1`.
 
+## `robust_union.py`
+Uncertainty set: Union of two L2 balls `Theta = Theta_1 ∪ Theta_2`.
+
+Problem:
+```
+minimize    ||w - theta||_2^2
+subject to  w ∈ [-1, 1]^2   for all theta in Theta
+```
+Approach: decompose over components and approximate each with scenarios, taking the max objective across components.
+
 ## `robust_supply_planning.py`
 Pipeline:
 1. Train a PyTorch predictor `f(x)` for a 2D demand vector `theta`.

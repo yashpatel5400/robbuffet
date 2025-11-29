@@ -25,7 +25,9 @@ def support_function(region: PredictionRegion, direction) -> cp.Expression:
     Assumes direction is a CVXPY expression or NumPy array.
     """
     if isinstance(region, UnionRegion):
-        raise ValueError("Support function for union regions should be handled via decomposition.")
+        # Over-approximate by max over components
+        comps = [support_function(r, direction) for r in region.regions]
+        return cp.maximum(*comps)
     if not isinstance(direction, cp.Expression):
         direction = cp.Constant(direction)
     if isinstance(region, L2BallRegion):
@@ -98,11 +100,19 @@ class ScenarioRobustOptimizer:
     ) -> cp.Problem:
         w = cp.Variable(self.decision_shape)
         t = cp.Variable()
-        samples = region.sample(self.num_samples, rng=self.rng)
         constraints: List[cp.Constraint] = []
-        for theta in samples:
-            constraints.append(t >= self.objective_fn(w, theta))
-            constraints.extend(self.constraints_fn(w, theta))
+        if isinstance(region, UnionRegion):
+            # solve per-component and enforce t >= max objective across components
+            for comp in region.regions:
+                samples = comp.sample(self.num_samples // len(region.regions) or 1, rng=self.rng)
+                for theta in samples:
+                    constraints.append(t >= self.objective_fn(w, theta))
+                    constraints.extend(self.constraints_fn(w, theta))
+        else:
+            samples = region.sample(self.num_samples, rng=self.rng)
+            for theta in samples:
+                constraints.append(t >= self.objective_fn(w, theta))
+                constraints.extend(self.constraints_fn(w, theta))
         problem = cp.Problem(cp.Minimize(t), constraints)
         if solver is not None:
             problem.solve(solver=solver)
