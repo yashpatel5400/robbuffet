@@ -2,15 +2,22 @@
 Avocet: Conformal prediction and robust decision-making toolkit.
 
 Exposes:
-- ScoreFunction implementations and region geometry helpers.
+- ScoreFunction implementations and geometry-aware PredictionRegion classes.
 - SplitConformalCalibrator for calibration and region generation.
 - Region visualization utilities.
-- Scenario-based robust decision-making helpers.
+- Scenario-based or deterministic robust decision-making helpers.
 """
 
 from .scores import L1Score, L2Score, LinfScore, MahalanobisScore, ScoreFunction
 from .calibration import SplitConformalCalibrator
-from .region import PredictionRegion, ScoreGeometry
+from .region import (
+    PredictionRegion,
+    L1BallRegion,
+    L2BallRegion,
+    LinfBallRegion,
+    EllipsoidRegion,
+    UnionRegion,
+)
 from .decision import (
     ScenarioRobustOptimizer,
     support_function,
@@ -26,7 +33,11 @@ __all__ = [
     "ScoreFunction",
     "SplitConformalCalibrator",
     "PredictionRegion",
-    "ScoreGeometry",
+    "L1BallRegion",
+    "L2BallRegion",
+    "LinfBallRegion",
+    "EllipsoidRegion",
+    "UnionRegion",
     "ScenarioRobustOptimizer",
     "support_function",
     "robustify_affine_objective",

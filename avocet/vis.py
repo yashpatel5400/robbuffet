@@ -11,16 +11,16 @@ from .region import PredictionRegion
 def plot_region_1d(region: PredictionRegion, ax: Optional[plt.Axes] = None, color: str = "C0"):
     if ax is None:
         _, ax = plt.subplots()
-    if region.geometry.name == "l2_ball":
-        center = float(region.center.squeeze())
+    if region.name == "l2_ball":
+        center = float(np.array(region.center).squeeze())
         r = float(region.radius)
         ax.axvspan(center - r, center + r, alpha=0.3, color=color, label="prediction region")
         ax.axvline(center, color=color, linestyle="--", label="prediction")
-    elif region.geometry.name == "union" and region.components:
-        for idx, comp in enumerate(region.components):
+    elif region.name == "union":
+        for idx, comp in enumerate(region.as_union()):
             plot_region_1d(comp, ax=ax, color=f"C{idx}")
     else:
-        raise NotImplementedError(f"1D plot not available for {region.geometry.name}")
+        raise NotImplementedError(f"1D plot not available for {region.name}")
     ax.set_ylabel("Region indicator")
     ax.legend()
     return ax

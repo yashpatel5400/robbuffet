@@ -5,7 +5,14 @@ from typing import Callable, List, Optional, Sequence, Tuple
 import cvxpy as cp
 import numpy as np
 
-from .region import PredictionRegion
+from .region import (
+    EllipsoidRegion,
+    L1BallRegion,
+    L2BallRegion,
+    LinfBallRegion,
+    PredictionRegion,
+    UnionRegion,
+)
 
 
 ObjectiveFn = Callable[[cp.Variable, np.ndarray], cp.Expression]
@@ -17,29 +24,25 @@ def support_function(region: PredictionRegion, direction) -> cp.Expression:
     Support function h_R(direction) = max_{theta in R} <direction, theta>.
     Assumes direction is a CVXPY expression or NumPy array.
     """
-    if region.geometry.name == "union":
+    if isinstance(region, UnionRegion):
         raise ValueError("Support function for union regions should be handled via decomposition.")
-    center = region.center
-    radius = region.radius
-    if center is None or radius is None:
-        raise ValueError("Region center and radius required for support computation.")
-    # Normalize direction to CVXPY expression
     if not isinstance(direction, cp.Expression):
         direction = cp.Constant(direction)
-    base = direction @ center
-    if region.geometry.name == "l2_ball":
-        return base + radius * cp.norm(direction, 2)
-    if region.geometry.name == "l1_ball":
-        return base + radius * cp.norm(direction, "inf")
-    if region.geometry.name == "linf_ball":
-        return base + radius * cp.norm(direction, 1)
-    if region.geometry.name == "ellipsoid":
-        if region.shape_matrix is None:
-            raise ValueError("Ellipsoid requires shape_matrix.")
+    if isinstance(region, L2BallRegion):
+        base = direction @ region.center
+        return base + region.radius * cp.norm(direction, 2)
+    if isinstance(region, L1BallRegion):
+        base = direction @ region.center
+        return base + region.radius * cp.norm(direction, "inf")
+    if isinstance(region, LinfBallRegion):
+        base = direction @ region.center
+        return base + region.radius * cp.norm(direction, 1)
+    if isinstance(region, EllipsoidRegion):
+        base = direction @ region.center
         w_inv = np.linalg.inv(region.shape_matrix)
         quad = cp.quad_form(direction, w_inv)
-        return base + radius * cp.sqrt(quad)
-    raise NotImplementedError(f"Support function not implemented for {region.geometry.name}")
+        return base + region.radius * cp.sqrt(quad)
+    raise NotImplementedError(f"Support function not implemented for {region.name}")
 
 
 def robustify_affine_objective(

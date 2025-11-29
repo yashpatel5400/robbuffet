@@ -6,13 +6,22 @@ from typing import Any
 import numpy as np
 import torch
 
-from .region import PredictionRegion, ScoreGeometry
+from .region import (
+    EllipsoidRegion,
+    L1BallRegion,
+    L2BallRegion,
+    LinfBallRegion,
+    PredictionRegion,
+)
 
 
 class ScoreFunction(abc.ABC):
     """Base interface for score functions."""
 
-    geometry: ScoreGeometry
+    @property
+    @abc.abstractmethod
+    def name(self) -> str:
+        ...
 
     @abc.abstractmethod
     def score(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
@@ -29,8 +38,9 @@ class L2Score(ScoreFunction):
     Induces an L2 ball prediction region around the point prediction.
     """
 
-    def __init__(self):
-        self.geometry = ScoreGeometry(name="l2_ball", convex=True, union=False, params={"p": 2})
+    @property
+    def name(self) -> str:
+        return "l2"
 
     def score(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         return torch.norm(prediction - target, p=2, dim=-1)
@@ -39,7 +49,7 @@ class L2Score(ScoreFunction):
         center = prediction.detach().cpu().numpy()
         if center.ndim == 0:
             center = center.reshape(1)
-        return PredictionRegion.l2_ball(center=center, radius=float(quantile))
+        return L2BallRegion(center=center, radius=float(quantile))
 
 
 class L1Score(ScoreFunction):
@@ -48,8 +58,9 @@ class L1Score(ScoreFunction):
     Induces an L1 ball prediction region around the point prediction.
     """
 
-    def __init__(self):
-        self.geometry = ScoreGeometry(name="l1_ball", convex=True, union=False, params={"p": 1})
+    @property
+    def name(self) -> str:
+        return "l1"
 
     def score(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         return torch.norm(prediction - target, p=1, dim=-1)
@@ -58,7 +69,7 @@ class L1Score(ScoreFunction):
         center = prediction.detach().cpu().numpy()
         if center.ndim == 0:
             center = center.reshape(1)
-        return PredictionRegion.l1_ball(center=center, radius=float(quantile))
+        return L1BallRegion(center=center, radius=float(quantile))
 
 
 class LinfScore(ScoreFunction):
@@ -67,8 +78,9 @@ class LinfScore(ScoreFunction):
     Induces an L-infinity (hypercube) prediction region around the point prediction.
     """
 
-    def __init__(self):
-        self.geometry = ScoreGeometry(name="linf_ball", convex=True, union=False, params={"p": np.inf})
+    @property
+    def name(self) -> str:
+        return "linf"
 
     def score(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         return torch.norm(prediction - target, p=float("inf"), dim=-1)
@@ -77,7 +89,7 @@ class LinfScore(ScoreFunction):
         center = prediction.detach().cpu().numpy()
         if center.ndim == 0:
             center = center.reshape(1)
-        return PredictionRegion.linf_ball(center=center, radius=float(quantile))
+        return LinfBallRegion(center=center, radius=float(quantile))
 
 
 class MahalanobisScore(ScoreFunction):
@@ -90,7 +102,10 @@ class MahalanobisScore(ScoreFunction):
         if weight.shape[0] != weight.shape[1]:
             raise ValueError("weight must be square")
         self.weight = weight
-        self.geometry = ScoreGeometry(name="ellipsoid", convex=True, union=False, params={"shape": "psd"})
+
+    @property
+    def name(self) -> str:
+        return "mahalanobis"
 
     def score(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
         diff = prediction - target
@@ -102,7 +117,7 @@ class MahalanobisScore(ScoreFunction):
         center = prediction.detach().cpu().numpy()
         if center.ndim == 0:
             center = center.reshape(1)
-        return PredictionRegion.ellipsoid(center=center, shape_matrix=self.weight, radius=float(quantile))
+        return EllipsoidRegion(center=center, shape_matrix=self.weight, radius=float(quantile))
 
 
 def conformal_quantile(scores: torch.Tensor, alpha: float) -> float:
