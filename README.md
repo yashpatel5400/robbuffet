@@ -2,6 +2,8 @@
 
 Conformal prediction + robust decision making with PyTorch predictors and CVXPY optimizers.
 
+**Docs:** https://ypatel.io/avocet/
+
 ## What this package does
 - Calibrate PyTorch predictors with split conformal prediction and geometry-aware score functions.
 - Produce prediction regions (convex or unions) that can be sampled, visualized (1D/2D), or passed to downstream optimizers.
