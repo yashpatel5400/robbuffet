@@ -6,7 +6,7 @@ Pipeline:
 2) Train a PyTorch predictor for daily demand (cnt).
 3) Calibrate with split conformal (L2 score), plot calibration curve.
 4) For test days, build L2-ball regions and solve a robust newsvendor problem
-   via scenario sampling; compare to nominal (plug-in) decisions.
+   using the worst-case over interval endpoints; compare to nominal (plug-in) decisions.
 """
 
 import os
@@ -19,7 +19,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from avocet import L2Score, SplitConformalCalibrator, ScenarioRobustOptimizer, PredictionRegion
+from avocet import L2Score, SplitConformalCalibrator, PredictionRegion
 
 
 DATA_PATH = Path("data/day.csv")
@@ -88,23 +88,18 @@ def newsvendor_cost(q, demand, cu=5.0, co=1.0):
     return co * over + cu * under
 
 
-def robust_newsvendor(region: PredictionRegion, cu=5.0, co=1.0, num_samples=256):
-    def objective(q_var: cp.Variable, theta: np.ndarray):
-        d = float(theta.squeeze())
-        return co * cp.pos(q_var - d) + cu * cp.pos(d - q_var)
-
-    def constraints(q_var: cp.Variable, theta: np.ndarray):
-        return [q_var >= 0]
-
-    opt = ScenarioRobustOptimizer(
-        decision_shape=(),
-        objective_fn=objective,
-        constraints_fn=constraints,
-        num_samples=num_samples,
-    )
-    prob = opt.build_problem(region, solver="ECOS")
-    q_star = prob.variables()[0].value
-    return float(q_star)
+def robust_newsvendor(region: PredictionRegion, cu=5.0, co=1.0):
+    center = float(np.array(region.center).squeeze())
+    r = float(region.radius)
+    lb = center - r
+    ub = center + r
+    q_var = cp.Variable()
+    t = cp.Variable()
+    cost_lb = co * cp.pos(q_var - lb) + cu * cp.pos(lb - q_var)
+    cost_ub = co * cp.pos(q_var - ub) + cu * cp.pos(ub - q_var)
+    prob = cp.Problem(cp.Minimize(t), [t >= cost_lb, t >= cost_ub, q_var >= 0])
+    prob.solve()
+    return float(q_var.value)
 
 
 def main():
@@ -165,7 +160,7 @@ def main():
         x_i = x_test_t[i : i + 1]
         y_true = float(y_test[i])
         region = calibrator.predict_region(x_i)
-        q_robust = robust_newsvendor(region, cu=cu, co=co, num_samples=256)
+        q_robust = robust_newsvendor(region, cu=cu, co=co)
         q_nom = float(model(x_i).detach().cpu().numpy().squeeze())
         robust_costs.append(newsvendor_cost(q_robust, y_true, cu=cu, co=co))
         nominal_costs.append(newsvendor_cost(q_nom, y_true, cu=cu, co=co))

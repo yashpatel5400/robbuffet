@@ -45,7 +45,10 @@ class SplitConformalCalibrator:
             y = y.to(self.device)
             preds = self.predictor(x)
             batch_scores = self.score_fn.score(preds, y)
-            scores.append(batch_scores.detach().cpu())
+            bs = batch_scores.detach().cpu()
+            if bs.dim() == 0:
+                bs = bs.unsqueeze(0)
+            scores.append(bs)
         if not scores:
             raise ValueError("Calibration data is empty.")
         all_scores = torch.cat(scores).float()
