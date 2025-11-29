@@ -1,5 +1,10 @@
 # <img src="logo.png" alt="Avocet logo" width="64" height="64" style="vertical-align:middle; margin-right:8px;" /> avocet-cp
 
+[![PyPI](https://img.shields.io/pypi/v/avocet-cp.svg)](https://pypi.org/project/avocet-cp/)
+[![Python](https://img.shields.io/pypi/pyversions/avocet-cp.svg)](https://pypi.org/project/avocet-cp/)
+[![CI](https://github.com/yashpatel5400/avocet/actions/workflows/ci.yml/badge.svg)](https://github.com/yashpatel5400/avocet/actions/workflows/ci.yml)
+[![Docs](https://github.com/yashpatel5400/avocet/actions/workflows/docs.yml/badge.svg)](https://ypatel.io/avocet/)
+
 Conformal prediction + robust decision making with PyTorch predictors and CVXPY optimizers.
 
 **Docs:** https://ypatel.io/avocet/
