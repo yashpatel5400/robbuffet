@@ -25,7 +25,7 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
-from robbuffet import DanskinRobustOptimizer, SplitConformalCalibrator, vis
+from robbuffet import SplitConformalCalibrator, vis
 from robbuffet.region import L2BallRegion, UnionRegion
 from robbuffet.scores import GPCPScore, conformal_quantile
 
@@ -150,21 +150,6 @@ def node_costs_to_edges(node_costs: np.ndarray, edges: list) -> np.ndarray:
     return np.array([(node_costs[u] + node_costs[v]) / 2.0 for u, v in edges])
 
 
-def project_flow(A, b, w_init):
-    """Project w_init onto {w: Aw=b, 0<=w<=1} via QP."""
-    E = A.shape[1]
-    w_var = cp.Variable(E)
-    prob = cp.Problem(cp.Minimize(cp.sum_squares(w_var - w_init)), [A @ w_var == b, w_var >= 0, w_var <= 1])
-    for solver in [cp.CLARABEL, cp.ECOS, None]:
-        try:
-            prob.solve(solver=solver)
-        except Exception:
-            continue
-        if w_var.value is not None:
-            return w_var.value
-    return w_init
-
-
 def feasibility_report(A: np.ndarray, b: np.ndarray, w: np.ndarray) -> str:
     res = np.linalg.norm(A @ w - b, ord=np.inf)
     return f"residual={res:.2e}, min={w.min():.3f}, max={w.max():.3f}"
@@ -175,20 +160,18 @@ def feasibility_report(A: np.ndarray, b: np.ndarray, w: np.ndarray) -> str:
 # ---------------------------------------------------------------------------
 
 
-def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--dcrnn-root", type=str, default="examples/DCRNN_PyTorch", help="Path to cloned DCRNN_PyTorch repo")
-    parser.add_argument("--adj", type=str, default="examples/DCRNN_PyTorch/data/sensor_graph/adj_mx.pkl", help="Path to adj_mx.pkl")
-    parser.add_argument("--predictions", type=str, default="examples/DCRNN_PyTorch/data/dcrnn_predictions_pytorch.npz", help="NPZ containing precomputed predictions/truth from run_demo_pytorch.py")
-    parser.add_argument("--alpha", type=float, default=0.1)
-    parser.add_argument("--K", type=int, default=8)
-    parser.add_argument("--source", type=int, default=0)
-    parser.add_argument("--target", type=int, default=10)
-    args = parser.parse_args()
-
-    dcrnn_root = os.path.abspath(args.dcrnn_root)
-    adj_path = os.path.abspath(args.adj)
-    pred_path = os.path.abspath(args.predictions)
+def run_experiment(
+    alpha: float = 0.1,
+    K: int = 8,
+    dcrnn_root: str = "examples/DCRNN_PyTorch",
+    adj: str = "examples/DCRNN_PyTorch/data/sensor_graph/adj_mx.pkl",
+    predictions: str = "examples/DCRNN_PyTorch/data/dcrnn_predictions_pytorch.npz",
+    source: int = 0,
+    target: int = 10,
+):
+    dcrnn_root = os.path.abspath(dcrnn_root)
+    adj_path = os.path.abspath(adj)
+    pred_path = os.path.abspath(predictions)
 
     maybe_generate_adj(dcrnn_root, adj_path)
 
@@ -199,8 +182,8 @@ def main():
     G, edges = build_graph_from_adj(adj_mx)
     A = build_incidence(edges, adj_mx.shape[0])
     b = np.zeros(adj_mx.shape[0])
-    b[args.source] = 1.0
-    b[args.target] = -1.0
+    b[source] = 1.0
+    b[target] = -1.0
 
     # DCRNN predictions (speed) on held-out set
     if not os.path.exists(pred_path):
@@ -224,7 +207,7 @@ def main():
 
     def sampler(xb: torch.Tensor) -> torch.Tensor:
         base = xb.cpu().numpy()
-        noise = np.random.normal(scale=resid_std.squeeze(), size=(args.K, base.shape[0], base.shape[1]))
+        noise = np.random.normal(scale=resid_std.squeeze(), size=(K, base.shape[0], base.shape[1]))
         samples = base[None, ...] + noise
         return torch.tensor(samples, dtype=torch.float32)
 
@@ -238,7 +221,7 @@ def main():
 
     score_fn = GPCPScore(sampler)
     calibrator = SplitConformalCalibrator(sampler, score_fn, cal_loader)
-    q = calibrator.calibrate(alpha=args.alpha)
+    q = calibrator.calibrate(alpha=alpha)
     print(f"Calibrated GPCP radius q: {q:.4f}")
 
     # Calibration curve
@@ -271,37 +254,16 @@ def main():
     # Robust vs nominal
     w_robust, status_r = robust_shortest_path(A, b, centers_edges, radius, base_cost=np.ones_like(mean_pred_edges))
     w_nom, status_n = nominal_shortest_path(A, b, mean_pred_edges)
-    # Danskin optimizer setup
-    l2_regions = [L2BallRegion(center=c, radius=radius) for c in centers_edges]
-    union_region = UnionRegion(l2_regions)
-
-    def inner_obj(theta_var, w_np):
-        return theta_var @ w_np
-
-    def value_and_grad(w_np, theta_np):
-        return float(theta_np @ w_np), np.array(theta_np, dtype=float)
-
-    project = lambda w_vec: project_flow(A, b, w_vec)
-    w0 = w_nom if w_nom is not None else np.ones(A.shape[1]) / A.shape[1]
-    danskin_opt = DanskinRobustOptimizer(
-        region=union_region,
-        inner_objective_fn=inner_obj,
-        value_and_grad_fn=value_and_grad,
-        project_fn=project,
-    )
-    w_danskin, _ = danskin_opt.solve(w0=np.asarray(w0).reshape(-1), step_size=0.1, max_iters=500)
 
     if w_robust is None:
         print("Robust solve failed.")
-        return
+        return {}
     w_robust = np.asarray(w_robust).reshape(-1)
     w_nom = np.asarray(w_nom).reshape(-1)
-    w_danskin = np.asarray(w_danskin).reshape(-1)
 
     print("Feasibility:")
     print(f"  nominal : {feasibility_report(A, b, w_nom)}")
     print(f"  analytic: {feasibility_report(A, b, w_robust)}")
-    print(f"  danskin : {feasibility_report(A, b, w_danskin)}")
 
     def worst_case_bound(w_vec):
         return float(np.max(centers_edges @ w_vec) + radius * np.linalg.norm(w_vec))
@@ -309,17 +271,14 @@ def main():
     print("Worst-case bound (analytic model):")
     print(f"  nominal : {worst_case_bound(w_nom):.4f}")
     print(f"  analytic: {worst_case_bound(w_robust):.4f}")
-    print(f"  danskin : {worst_case_bound(w_danskin):.4f}")
 
     # Evaluate on true cost for the same test sample
     true_cost_nodes = test_cost_true[0]
     true_cost_edges = node_costs_to_edges(true_cost_nodes, edges)
     robust_cost = true_cost_edges @ w_robust
     nominal_cost = true_cost_edges @ w_nom
-    danskin_cost = true_cost_edges @ w_danskin
     print(f"True path cost (nominal): {nominal_cost:.4f}")
     print(f"True path cost (analytic robust): {robust_cost:.4f}")
-    print(f"True path cost (Danskin robust): {danskin_cost:.4f}")
 
     # Visualize flows side by side
     pos = nx.spring_layout(G, seed=0, k=1 / np.sqrt(G.number_of_nodes()))
@@ -327,11 +286,11 @@ def main():
     def edge_widths(flow):
         return [max(flow[G[u][v]["idx"]] * 5, 0.1) for u, v in G.edges()]
 
-    fig, axes = plt.subplots(1, 3, figsize=(18, 6))
+    fig, axes = plt.subplots(1, 2, figsize=(14, 6))
     for ax, flow, title in zip(
         axes,
-        [w_nom, w_robust, w_danskin],
-        ["Nominal flow", "Analytic robust flow", "Danskin robust flow"],
+        [w_nom, w_robust],
+        ["Nominal flow", "Analytic robust flow"],
     ):
         nx.draw_networkx_nodes(G, pos, node_size=20, node_color="lightgray", ax=ax)
         nx.draw_networkx_edges(G, pos, width=edge_widths(flow), edge_color="C0", arrows=False, ax=ax)
@@ -341,7 +300,30 @@ def main():
     fig.savefig("metrla_flows.png", dpi=150)
     plt.close(fig)
     print("Saved metrla_flows.png")
+    return {
+        "avg_cost_robust": float(robust_cost),
+        "avg_cost_nominal": float(nominal_cost),
+        "avg_cost_oracle": None,  # not available
+        "q_calibrated": q,
+    }
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--dcrnn-root", type=str, default="examples/DCRNN_PyTorch", help="Path to cloned DCRNN_PyTorch repo")
+    parser.add_argument("--adj", type=str, default="examples/DCRNN_PyTorch/data/sensor_graph/adj_mx.pkl", help="Path to adj_mx.pkl")
+    parser.add_argument("--predictions", type=str, default="examples/DCRNN_PyTorch/data/dcrnn_predictions_pytorch.npz", help="NPZ containing precomputed predictions/truth from run_demo_pytorch.py")
+    parser.add_argument("--alpha", type=float, default=0.1)
+    parser.add_argument("--K", type=int, default=8)
+    parser.add_argument("--source", type=int, default=0)
+    parser.add_argument("--target", type=int, default=10)
+    args = parser.parse_args()
+    run_experiment(
+        alpha=args.alpha,
+        K=args.K,
+        dcrnn_root=args.dcrnn_root,
+        adj=args.adj,
+        predictions=args.predictions,
+        source=args.source,
+        target=args.target,
+    )
