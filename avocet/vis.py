@@ -47,3 +47,23 @@ def plot_region_2d(
     ax.set_xlabel("dim 1")
     ax.set_ylabel("dim 2")
     return ax
+
+
+def plot_calibration_curve(
+    alphas,
+    coverages,
+    ax: Optional[plt.Axes] = None,
+    label: str = "empirical coverage",
+    title: str = "Calibration curve",
+):
+    if ax is None:
+        _, ax = plt.subplots()
+    x_axis = 1 - np.array(alphas)
+    ax.plot(x_axis, coverages, marker="o", label=label)
+    ax.plot(x_axis, x_axis, "--", label="target coverage")
+    ax.set_xlabel("1 - alpha")
+    ax.set_ylabel("coverage")
+    ax.set_title(title)
+    ax.legend()
+    ax.grid(True, linestyle="--", alpha=0.5)
+    return ax

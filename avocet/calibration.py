@@ -62,4 +62,7 @@ class SplitConformalCalibrator:
         x = x.to(self.device)
         pred = self.predictor(x)
         # For GPCP-style scores, predictor may return samples directly
+        # Ensure batch dimension is handled by squeezing if needed
+        if isinstance(pred, torch.Tensor) and pred.dim() >= 2 and pred.shape[0] == 1:
+            pred = pred.squeeze(0)
         return self.score_fn.build_region(pred, self._quantile)

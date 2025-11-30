@@ -14,7 +14,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from avocet import SplitConformalCalibrator
+from avocet import SplitConformalCalibrator, vis
 from avocet.scores import GPCPScore, conformal_quantile
 
 
@@ -130,6 +130,32 @@ def main():
     alpha = 0.1
     q = calibrator.calibrate(alpha=alpha)
     print(f"Calibrated GPCP radius q: {q:.4f}")
+
+    # Calibration curve
+    alphas = np.linspace(0.05, 0.5, num=10)
+    coverages = []
+    with torch.no_grad():
+        cal_scores = []
+        for xb, yb in DataLoader(TensorDataset(x_cal, y_cal), batch_size=32):
+            cal_scores.append(score_fn.score(predictor(xb), yb).cpu())
+        cal_scores = torch.cat(cal_scores).numpy()
+        test_scores = []
+        for xb, yb in DataLoader(TensorDataset(x_test, y_test), batch_size=32):
+            preds = predictor(xb)
+            diffs = preds - yb.unsqueeze(0)
+            norms = torch.norm(diffs, dim=-1).min(dim=0)[0].cpu().numpy()
+            test_scores.append(norms)
+        test_scores = np.concatenate(test_scores)
+    for a in alphas:
+        q_a = conformal_quantile(torch.tensor(cal_scores), a)
+        cov = float(np.mean(test_scores <= q_a))
+        coverages.append(cov)
+    vis.plot_calibration_curve(alphas, coverages, title="Calibration curve (shortest path)")
+    import matplotlib.pyplot as plt
+
+    plt.tight_layout()
+    plt.savefig("shortest_path_calibration_curve.png", dpi=150)
+    print("Saved shortest_path_calibration_curve.png")
 
     # Pick a test point
     x_new = x_test[0:1]

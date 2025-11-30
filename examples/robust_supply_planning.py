@@ -9,7 +9,6 @@ import math
 from typing import Tuple
 
 import cvxpy as cp
-import matplotlib.pyplot as plt
 import numpy as np
 import torch
 from torch import nn
@@ -22,6 +21,7 @@ from avocet import (
     robustify_affine_objective,
 )
 from avocet.scores import conformal_quantile
+from avocet import vis
 
 
 def make_synthetic_data(
@@ -136,13 +136,9 @@ def main():
     # calibration curve on test
     alphas = np.linspace(0.05, 0.5, num=10)
     coverages = calibration_curve(model, score_fn, x_cal, y_cal, x_test, y_test, alphas)
-    plt.figure()
-    plt.plot(alphas, coverages, marker="o", label="empirical coverage")
-    plt.plot(alphas, 1 - alphas, "--", label="target 1-alpha")
-    plt.xlabel("alpha")
-    plt.ylabel("coverage")
-    plt.title("Calibration curve on test data")
-    plt.legend()
+    vis.plot_calibration_curve(alphas, coverages, title="Calibration curve on test data (supply planning)")
+    import matplotlib.pyplot as plt
+
     plt.tight_layout()
     plt.savefig("calibration_curve.png", dpi=150)
     print("Saved calibration_curve.png")
