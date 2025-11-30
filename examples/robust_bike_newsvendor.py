@@ -7,6 +7,8 @@ Pipeline:
 3) Calibrate with split conformal (L2 score), plot calibration curve.
 4) For test days, build L2-ball regions and solve a robust newsvendor problem
    using the worst-case over interval endpoints; compare to nominal (plug-in) decisions.
+5) Compute oracle (true) decision minimizing average cost over the test set, and report
+   relative suboptimality of robust/nominal vs oracle.
 """
 
 import os
@@ -108,15 +110,14 @@ def feasibility_newsvendor(q: float) -> str:
     return f"q={q:.2f} (nonneg={q>=0})"
 
 
-def main():
-    import pandas as pd
-
+def run_experiment(alpha: float = 0.1, cu: float = 5.0, co: float = 1.0, num_test: int = 100, seed: int = 0):
     if not DATA_PATH.exists():
-        raise SystemExit("Missing data/day.csv. Download Bike Sharing dataset first.")
+        raise FileNotFoundError("Missing data/day.csv. Download Bike Sharing dataset first.")
 
     X, y = load_bike_data()
     n = len(X)
-    idx = np.random.default_rng(0).permutation(n)
+    rng = np.random.default_rng(seed)
+    idx = rng.permutation(n)
     X = X[idx]
     y = y[idx]
     n_train = int(0.6 * n)
@@ -140,9 +141,7 @@ def main():
     score_fn = L2Score()
     cal_loader = DataLoader(TensorDataset(x_cal_t, y_cal_t), batch_size=64)
     calibrator = SplitConformalCalibrator(model, score_fn, cal_loader)
-    alpha = 0.1
     q = calibrator.calibrate(alpha=alpha)
-    print(f"Calibrated L2 radius q (alpha={alpha}): {q:.2f}")
 
     alphas = np.linspace(0.05, 0.5, 10)
     coverages, quantiles = calibration_curve(model, score_fn, x_cal_t, y_cal_t, x_test_t, y_test_t, alphas)
@@ -151,14 +150,14 @@ def main():
     ax.legend()
     fig.tight_layout()
     fig.savefig("bike_calibration_curve.png", dpi=150)
-    print("Saved bike_calibration_curve.png")
 
     # Evaluate robust vs nominal decisions on a subset of test points
-    cu, co = 5.0, 1.0
     robust_costs = []
     nominal_costs = []
-    true_costs = []
-    for i in range(min(100, len(X_test))):
+    qs_robust = []
+    qs_nom = []
+    selected = min(num_test, len(X_test))
+    for i in range(selected):
         x_i = x_test_t[i : i + 1]
         y_true = float(y_test[i])
         region = calibrator.predict_region(x_i)
@@ -170,10 +169,45 @@ def main():
             print(f"  nominal: {feasibility_newsvendor(q_nom)}")
         robust_costs.append(newsvendor_cost(q_robust, y_true, cu=cu, co=co))
         nominal_costs.append(newsvendor_cost(q_nom, y_true, cu=cu, co=co))
-        true_costs.append(y_true)
+        qs_robust.append(q_robust)
+        qs_nom.append(q_nom)
 
-    print(f"Avg cost (robust): {np.mean(robust_costs):.2f}")
-    print(f"Avg cost (nominal): {np.mean(nominal_costs):.2f}")
+    # Oracle decision: minimize average cost over test set with true demands known.
+    q_star = cp.Variable(nonneg=True)
+    y_vec = y_test[:selected]
+    over = cp.pos(q_star - y_vec)
+    under = cp.pos(y_vec - q_star)
+    avg_cost_expr = cp.sum(co * over + cu * under) / selected
+    prob = cp.Problem(cp.Minimize(avg_cost_expr))
+    prob.solve()
+    q_oracle = float(q_star.value)
+    oracle_cost = float(avg_cost_expr.value)
+
+    results = {
+        "alpha": alpha,
+        "q_calibrated": q,
+        "avg_cost_robust": float(np.mean(robust_costs)),
+        "avg_cost_nominal": float(np.mean(nominal_costs)),
+        "avg_cost_oracle": oracle_cost,
+        "q_oracle": q_oracle,
+        "q_robust_first": qs_robust[0] if qs_robust else None,
+        "q_nominal_first": qs_nom[0] if qs_nom else None,
+    }
+
+    # Relative suboptimality vs oracle
+    if oracle_cost != 0:
+        results["rel_robust"] = (results["avg_cost_robust"] - oracle_cost) / oracle_cost
+        results["rel_nominal"] = (results["avg_cost_nominal"] - oracle_cost) / oracle_cost
+    else:
+        results["rel_robust"] = np.inf
+        results["rel_nominal"] = np.inf
+
+    print(f"Calibrated L2 radius q (alpha={alpha}): {q:.2f}")
+    print("Saved bike_calibration_curve.png")
+    print(f"Avg cost (robust): {results['avg_cost_robust']:.2f}")
+    print(f"Avg cost (nominal): {results['avg_cost_nominal']:.2f}")
+    print(f"Avg cost (oracle): {results['avg_cost_oracle']:.2f}")
+    print(f"Relative suboptimality vs oracle - robust: {results['rel_robust']}, nominal: {results['rel_nominal']}")
 
     plt.figure()
     plt.hist(robust_costs, bins=20, alpha=0.6, label="robust")
@@ -185,7 +219,8 @@ def main():
     plt.tight_layout()
     plt.savefig("bike_cost_hist.png", dpi=150)
     print("Saved bike_cost_hist.png")
+    return results
 
 
 if __name__ == "__main__":
-    main()
+    run_experiment()
