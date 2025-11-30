@@ -1,4 +1,4 @@
-# <img src="logo.png" alt="Avocet logo" width="64" height="64" style="vertical-align:middle; margin-right:8px;" /> robbuffet
+# <img src="logo.png" alt="Avocet logo" width="48" height="64" style="vertical-align:middle; margin-right:8px;" /> robbuffet
 
 [![PyPI](https://img.shields.io/pypi/v/avocet-cp.svg)](https://pypi.org/project/avocet-cp/)
 [![Python](https://img.shields.io/pypi/pyversions/avocet-cp.svg)](https://pypi.org/project/avocet-cp/)
