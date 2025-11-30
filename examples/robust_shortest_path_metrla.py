@@ -16,11 +16,10 @@ Requirements:
 
 import argparse
 import os
-import pickle
+import sys
 from typing import Tuple
 
 import cvxpy as cp
-import h5py
 import matplotlib.pyplot as plt
 import networkx as nx
 import numpy as np
@@ -36,12 +35,6 @@ from avocet.scores import GPCPScore, conformal_quantile
 # ---------------------------------------------------------------------------
 
 
-def load_adj(adj_path: str):
-    with open(adj_path, "rb") as f:
-        _, _, adj_mx = pickle.load(f, encoding="latin1")
-    return adj_mx  # (N, N)
-
-
 def build_graph_from_adj(adj_mx: np.ndarray) -> Tuple[nx.DiGraph, list]:
     G = nx.DiGraph()
     N = adj_mx.shape[0]
@@ -54,10 +47,65 @@ def build_graph_from_adj(adj_mx: np.ndarray) -> Tuple[nx.DiGraph, list]:
     return G, edges
 
 
-def load_speed_data(h5_path: str) -> np.ndarray:
-    with h5py.File(h5_path, "r") as f:
-        # shape (num_samples, num_sensors)
-        return f["speed"][:]
+def maybe_download_metrla(h5_path: str):
+    if os.path.exists(h5_path):
+        return
+    os.makedirs(os.path.dirname(h5_path), exist_ok=True)
+    file_id = "1pAGRfzMx6K9WWsfDcD1NMbIif0T0saFC"
+    url = f"https://drive.google.com/uc?export=download&id={file_id}"
+    try:
+        import urllib.request
+
+        print(f"Downloading METR-LA data to {h5_path} ...")
+        urllib.request.urlretrieve(url, h5_path)
+        print("Download complete.")
+    except Exception as e:
+        raise RuntimeError(f"Failed to download METR-LA data to {h5_path}. Please download manually from {url}") from e
+
+
+def maybe_generate_adj(dcrnn_root: str, adj_path: str):
+    if os.path.exists(adj_path):
+        return
+    sensor_ids = os.path.join(dcrnn_root, "data/sensor_graph/graph_sensor_ids.txt")
+    if not os.path.exists(sensor_ids):
+        raise RuntimeError("Missing sensor IDs file; ensure DCRNN submodule is initialized with data.")
+    os.makedirs(os.path.dirname(adj_path), exist_ok=True)
+    try:
+        import subprocess
+        cmd = [
+            "python",
+            "-m",
+            "scripts.gen_adj_mx",
+            f"--sensor_ids_filename={sensor_ids}",
+            "--normalized_k=0.1",
+            f"--output_pkl_filename={adj_path}",
+        ]
+        subprocess.run(cmd, check=True, cwd=dcrnn_root)
+    except Exception as e:
+        raise RuntimeError(f"Failed to generate adj_mx.pkl at {adj_path}") from e
+
+
+def maybe_generate_dataset(dcrnn_root: str, metr_path: str, dataset_dir: str):
+    """
+    Use DCRNN's generate_training_data.py to create train/val/test NPZ splits
+    that the library utilities expect.
+    """
+    train_npz = os.path.join(dataset_dir, "train.npz")
+    if os.path.exists(train_npz):
+        return
+    os.makedirs(dataset_dir, exist_ok=True)
+    try:
+        import subprocess
+
+        cmd = [
+            "python",
+            "scripts/generate_training_data.py",
+            f"--output_dir={dataset_dir}",
+            f"--traffic_df_filename={metr_path}",
+        ]
+        subprocess.run(cmd, check=True, cwd=dcrnn_root)
+    except Exception as e:
+        raise RuntimeError(f"Failed to generate train/val/test splits at {dataset_dir}") from e
 
 
 # ---------------------------------------------------------------------------
@@ -65,34 +113,57 @@ def load_speed_data(h5_path: str) -> np.ndarray:
 # ---------------------------------------------------------------------------
 
 
-def run_dcrnn_forecast(dcrnn_root: str, ckpt: str, data: np.ndarray, horizon: int) -> np.ndarray:
+def dcrnn_val_test_predictions(
+    dcrnn_root: str, ckpt_prefix: str, adj_path: str, dataset_dir: str
+) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """
-    Run DCRNN inference to forecast horizon steps.
-    Returns forecasts of shape (T, N) for next-step (we take horizon 1 here).
+    Load the pre-trained DCRNN and return (val_pred, val_true, test_pred, test_true)
+    for horizon-1 forecasts, all in original speed units.
     """
-    try:
-        import sys
+    import sys
+    import tensorflow as tf
+    import yaml
 
-        sys.path.append(dcrnn_root)
-        from dcrnn.model.dcrnn_supervisor import DCRNNSupervisor
-    except Exception as e:
-        raise ImportError("DCRNN not available. Install from https://github.com/liyaguang/DCRNN") from e
+    sys.path.append(dcrnn_root)
+    from lib.utils import load_graph_data
+    from model.dcrnn_supervisor import DCRNNSupervisor
 
-    config_path = os.path.join(dcrnn_root, "config", "metr-la.yaml")
-    supervisor = DCRNNSupervisor(config_filename=config_path)
-    # monkey patch to load provided checkpoint
-    supervisor._trainable = False
-    supervisor._ckpt_path = ckpt
-    # build data loader style input: (batch, seq_len, N, 1)
-    # use last 12 steps to predict next
-    seq_len = supervisor._model_config.get("seq_len", 12)
-    X_list = []
-    for t in range(data.shape[0] - seq_len - horizon):
-        X_list.append(data[t : t + seq_len])
-    X = np.stack(X_list, axis=0)[..., np.newaxis]  # (B, seq_len, N, 1)
-    y_hat = supervisor.model.predict(X)  # (B, horizon, N, 1)
-    # take first horizon step
-    return y_hat[:, 0, :, 0]
+    config_path = os.path.join(dcrnn_root, "data/model/pretrained/METR-LA/config.yaml")
+    with open(config_path) as f:
+        config = yaml.safe_load(f)
+    # Point to local data/paths.
+    config["data"]["dataset_dir"] = dataset_dir
+    config["data"]["graph_pkl_filename"] = adj_path
+    config["train"]["model_filename"] = ckpt_prefix
+
+    _, _, adj_mx = load_graph_data(adj_path)
+
+    tf_config = tf.ConfigProto()
+    tf_config.gpu_options.allow_growth = True
+    tf_config.log_device_placement = False
+
+    def _predict_split(sess, supervisor, split: str):
+        loader = supervisor._data[f"{split}_loader"]
+        y_true = supervisor._data[f"y_{split}"]
+        res = supervisor.run_epoch_generator(
+            sess,
+            supervisor._test_model,
+            loader.get_iterator(),
+            return_output=True,
+            training=False,
+        )
+        y_preds = np.concatenate(res["outputs"], axis=0)  # (B, horizon, N, 1)
+        scaler = supervisor._data["scaler"]
+        preds_inv = scaler.inverse_transform(y_preds[: y_true.shape[0], 0, :, 0])
+        truth_inv = scaler.inverse_transform(y_true[:, 0, :, 0])
+        return preds_inv, truth_inv
+
+    with tf.Session(config=tf_config) as sess:
+        supervisor = DCRNNSupervisor(adj_mx=adj_mx, **config)
+        supervisor.load(sess, ckpt_prefix)
+        val_pred, val_true = _predict_split(sess, supervisor, "val")
+        test_pred, test_true = _predict_split(sess, supervisor, "test")
+    return val_pred, val_true, test_pred, test_true
 
 
 # ---------------------------------------------------------------------------
@@ -129,6 +200,27 @@ def robust_shortest_path(A, b, centers_costs, radius_cost, base_cost):
     return (w.value if w.value is not None else None), status if status else "failed"
 
 
+def nominal_shortest_path(A, b, cost):
+    E = A.shape[1]
+    w = cp.Variable(E)
+    prob = cp.Problem(cp.Minimize(cost @ w), [A @ w == b, w >= 0, w <= 1])
+    status = None
+    for solver in [cp.CLARABEL, cp.ECOS, None]:
+        try:
+            prob.solve(solver=solver)
+        except Exception:
+            continue
+        status = prob.status
+        if w.value is not None:
+            break
+    return (w.value if w.value is not None else None), status if status else "failed"
+
+
+def node_costs_to_edges(node_costs: np.ndarray, edges: list) -> np.ndarray:
+    """Map per-node costs to per-edge by averaging endpoints."""
+    return np.array([(node_costs[u] + node_costs[v]) / 2.0 for u, v in edges])
+
+
 # ---------------------------------------------------------------------------
 # Main
 # ---------------------------------------------------------------------------
@@ -137,61 +229,66 @@ def robust_shortest_path(A, b, centers_costs, radius_cost, base_cost):
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--dcrnn-root", type=str, default="examples/DCRNN", help="Path to cloned DCRNN repo")
-    parser.add_argument("--ckpt", type=str, default="examples/DCRNN/models/pretrained/LA/best_model.ckpt", help="Path to DCRNN METR-LA checkpoint (ckpt file)")
+    parser.add_argument("--ckpt", type=str, default="examples/DCRNN/data/model/pretrained/METR-LA/models-2.7422-24375", help="Path prefix to DCRNN METR-LA checkpoint (without extension)")
     parser.add_argument("--adj", type=str, default="examples/DCRNN/data/sensor_graph/adj_mx.pkl", help="Path to adj_mx.pkl")
     parser.add_argument("--metr", type=str, default="examples/DCRNN/data/metr-la.h5", help="Path to metr-la.h5")
+    parser.add_argument("--dataset-dir", type=str, default="examples/DCRNN/data/METR-LA", help="Directory with DCRNN train/val/test NPZ files")
     parser.add_argument("--alpha", type=float, default=0.1)
     parser.add_argument("--K", type=int, default=8)
     parser.add_argument("--source", type=int, default=0)
     parser.add_argument("--target", type=int, default=10)
     args = parser.parse_args()
 
-    if not os.path.exists(args.adj) or not os.path.exists(args.metr):
-        raise SystemExit("METR-LA adjacency or data missing. Please download adj_mx.pkl and metr-la.h5 from the DCRNN repo.")
+    dcrnn_root = os.path.abspath(args.dcrnn_root)
+    adj_path = os.path.abspath(args.adj)
+    metr_path = os.path.abspath(args.metr)
+    dataset_dir = os.path.abspath(args.dataset_dir)
+    ckpt_prefix = os.path.abspath(args.ckpt)
 
-    adj_mx = load_adj(args.adj)
+    maybe_generate_adj(dcrnn_root, adj_path)
+    maybe_download_metrla(metr_path)
+    maybe_generate_dataset(dcrnn_root, metr_path, dataset_dir)
+
+    sys.path.append(dcrnn_root)
+    from lib.utils import load_graph_data
+
+    _, _, adj_mx = load_graph_data(adj_path)
     G, edges = build_graph_from_adj(adj_mx)
     A = build_incidence(edges, adj_mx.shape[0])
     b = np.zeros(adj_mx.shape[0])
     b[args.source] = 1.0
     b[args.target] = -1.0
 
-    speed = load_speed_data(args.metr)  # (T, N)
-    # Use last chunk for inference/calibration/test
-    T = speed.shape[0]
-    split_train = int(0.7 * T)
-    split_cal = int(0.85 * T)
-    train_speed = speed[:split_train]
-    cal_speed = speed[split_train:split_cal]
-    test_speed = speed[split_cal:]
+    # DCRNN predictions (speed) on val/test splits
+    val_pred, val_true, test_pred, test_true = dcrnn_val_test_predictions(
+        dcrnn_root, ckpt_prefix, adj_path, dataset_dir
+    )
 
-    # Forecast next step speeds for cal/test
-    cal_pred = run_dcrnn_forecast(args.dcrnn_root, args.ckpt, cal_speed, horizon=1)
-    test_pred = run_dcrnn_forecast(args.dcrnn_root, args.ckpt, test_speed, horizon=1)
+    # Work in cost space (travel time ~ inverse speed)
+    val_cost_pred = 1.0 / np.maximum(val_pred, 1e-3)
+    val_cost_true = 1.0 / np.maximum(val_true, 1e-3)
+    test_cost_pred = 1.0 / np.maximum(test_pred, 1e-3)
+    test_cost_true = 1.0 / np.maximum(test_true, 1e-3)
 
-    # Estimate residual std for sampling
-    resid = cal_speed[12 : 12 + cal_pred.shape[0]] - cal_pred  # align with forecast start
+    resid = val_cost_true - val_cost_pred
     resid_std = np.std(resid, axis=0, keepdims=True) + 1e-3
 
     def sampler(xb: torch.Tensor) -> torch.Tensor:
-        # xb is ignored; use precomputed predictions + Gaussian noise
-        # To keep shapes consistent, xb carries indices into test_pred
-        idxs = xb.squeeze().long().cpu().numpy()
-        preds = test_pred[idxs]  # (batch, N)
-        samples = []
-        for p in preds:
-            noise = np.random.normal(scale=resid_std.squeeze(), size=(args.K, p.shape[0]))
-            samples.append(p[None, :] + noise)
-        samples = np.stack(samples, axis=1)  # (K, batch, N)
+        base = xb.cpu().numpy()
+        noise = np.random.normal(scale=resid_std.squeeze(), size=(args.K, base.shape[0], base.shape[1]))
+        samples = base[None, ...] + noise
         return torch.tensor(samples, dtype=torch.float32)
 
-    # Build calibration/test datasets as index tensors
-    cal_idx = torch.arange(min(500, cal_pred.shape[0]))  # use subset for speed
-    test_idx = torch.arange(min(200, test_pred.shape[0]))
-    cal_loader = DataLoader(TensorDataset(cal_idx, torch.zeros_like(cal_idx)), batch_size=64)
+    cal_dataset = TensorDataset(
+        torch.tensor(val_cost_pred, dtype=torch.float32), torch.tensor(val_cost_true, dtype=torch.float32)
+    )
+    test_dataset = TensorDataset(
+        torch.tensor(test_cost_pred, dtype=torch.float32), torch.tensor(test_cost_true, dtype=torch.float32)
+    )
+    cal_loader = DataLoader(cal_dataset, batch_size=32, shuffle=True)
 
     score_fn = GPCPScore(sampler)
-    calibrator = SplitConformalCalibrator(lambda idx: sampler(idx), score_fn, cal_loader)
+    calibrator = SplitConformalCalibrator(sampler, score_fn, cal_loader)
     q = calibrator.calibrate(alpha=args.alpha)
     print(f"Calibrated GPCP radius q: {q:.4f}")
 
@@ -199,11 +296,7 @@ def main():
     alphas = np.linspace(0.05, 0.5, num=10)
     coverages = []
     cal_scores = calibrator.compute_scores(cal_loader).numpy()
-    test_scores = []
-    with torch.no_grad():
-        for xb, _ in DataLoader(TensorDataset(test_idx, torch.zeros_like(test_idx)), batch_size=64):
-            test_scores.append(score_fn.score(sampler(xb), torch.zeros_like(xb)).cpu())
-    test_scores = torch.cat(test_scores).numpy()
+    test_scores = calibrator.compute_scores(DataLoader(test_dataset, batch_size=32)).numpy()
     for a in alphas:
         q_a = conformal_quantile(torch.tensor(cal_scores), a)
         coverages.append(float(np.mean(test_scores <= q_a)))
@@ -216,15 +309,19 @@ def main():
     print("Saved metrla_calibration_curve.png")
 
     # Pick a test point
-    x_new = torch.tensor([0])  # first test index
+    x_new = torch.tensor(test_cost_pred[0:1], dtype=torch.float32)
     region = calibrator.predict_region(x_new)
     centers = np.stack([r.center for r in region.as_union()])
     radius = q
-    mean_pred = centers.mean(axis=0)
+    mean_pred_nodes = centers.mean(axis=0)
+
+    # Convert node-level costs to edge-level for optimization.
+    centers_edges = np.stack([node_costs_to_edges(c, edges) for c in centers])
+    mean_pred_edges = node_costs_to_edges(mean_pred_nodes, edges)
 
     # Robust vs nominal
-    w_robust, status_r = robust_shortest_path(A, b, centers, radius, base_cost=np.ones_like(mean_pred))
-    w_nom, status_n = nominal_shortest_path(A, b, mean_pred)
+    w_robust, status_r = robust_shortest_path(A, b, centers_edges, radius, base_cost=np.ones_like(mean_pred_edges))
+    w_nom, status_n = nominal_shortest_path(A, b, mean_pred_edges)
 
     if w_robust is None:
         print("Robust solve failed.")
@@ -232,11 +329,11 @@ def main():
     w_robust = np.asarray(w_robust).reshape(-1)
     w_nom = np.asarray(w_nom).reshape(-1)
 
-    # Evaluate on true cost (use first test speed as inverse speed ~ cost)
-    true_speed = test_speed[12]  # align to forecast horizon
-    true_cost = 1.0 / np.maximum(true_speed, 1e-3)
-    robust_cost = true_cost @ w_robust
-    nominal_cost = true_cost @ w_nom
+    # Evaluate on true cost for the same test sample
+    true_cost_nodes = test_cost_true[0]
+    true_cost_edges = node_costs_to_edges(true_cost_nodes, edges)
+    robust_cost = true_cost_edges @ w_robust
+    nominal_cost = true_cost_edges @ w_nom
     print(f"True path cost (robust): {robust_cost:.4f}")
     print(f"True path cost (nominal): {nominal_cost:.4f}")
 
