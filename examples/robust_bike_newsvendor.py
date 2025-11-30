@@ -68,15 +68,21 @@ def train_model(model, loader, epochs=50, lr=1e-3):
 
 
 def calibration_curve(model, score_fn, x_cal, y_cal, x_test, y_test, alphas):
+    cal_loader = DataLoader(TensorDataset(x_cal, y_cal), batch_size=64)
+    test_loader = DataLoader(TensorDataset(x_test, y_test), batch_size=64)
+    cal = SplitConformalCalibrator(model, score_fn, cal_loader)
+    cal_scores = cal.compute_scores(cal_loader).numpy()
+    # compute residuals on test
     with torch.no_grad():
-        cal_preds = model(x_cal)
-        cal_scores = score_fn.score(cal_preds, y_cal).cpu()
-        test_preds = model(x_test)
-        residuals = torch.abs(test_preds - y_test).cpu().numpy()
+        residuals = []
+        for xb, yb in test_loader:
+            preds = model(xb)
+            residuals.append(torch.abs(preds - yb).cpu().numpy())
+        residuals = np.concatenate(residuals)
     coverages = []
     quantiles = []
     for alpha in alphas:
-        q = conformal_quantile(cal_scores, alpha)
+        q = conformal_quantile(torch.tensor(cal_scores), alpha)
         quantiles.append(q)
         cov = float(np.mean(residuals <= q))
         coverages.append(cov)
