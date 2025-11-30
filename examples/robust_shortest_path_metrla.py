@@ -25,6 +25,10 @@ import numpy as np
 import torch
 from torch.utils.data import DataLoader, TensorDataset
 
+# Guard for environments where numpy might lack np.dtypes (seen in some CI/PyPI setups)
+if not hasattr(np, "dtypes"):
+    np.dtypes = np.dtype  # type: ignore
+
 from robbuffet import DanskinRobustOptimizer, SplitConformalCalibrator, vis
 from robbuffet.region import L2BallRegion, UnionRegion
 from robbuffet.scores import GPCPScore, conformal_quantile

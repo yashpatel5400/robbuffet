@@ -48,3 +48,10 @@ with a robust variant maximizing the worst-case $\min_{v \in \mathcal{C}(x)} \la
 |---------|----------------|--------|----------------------------------|
 | robust  | 2560.51        | 24.30  | t = -90.94, p = 5.958e-15        |
 | nominal | 4370.20        | 83.10  | –                                |
+
+### Shortest path (METR-LA)
+
+| method  | mean objective | std      | paired t-test (robust < nominal) |
+|---------|----------------|----------|----------------------------------|
+| robust  | 109.58         | 15.56    | t = -9.52, p = 2.682e-06         |
+| nominal | 12112.04       | 3780.02  | –                                |
