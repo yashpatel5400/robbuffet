@@ -1,21 +1,21 @@
 """
-Robust fractional knapsack using SBIBM's two_moons simulator and conformal GPCP regions.
-
-Steps:
-- Use sbibm.get_task("two_moons") to simulate (theta, x) pairs.
-- Map theta to item values/weights; train an MLP predictor on x -> [values, weights].
-- Calibrate with GPCP by sampling noisy forecasts; build a union-of-balls region over values.
-- Solve nominal vs robust fractional knapsack and report objectives.
+Robust fractional knapsack using SBIBM's two_moons simulator and a Neural Spline Flow
+posterior estimator to generate samples for GPCP.
 """
 
 import argparse
+import os
 import numpy as np
 import torch
 from torch import nn
+from functools import partial
 from torch.utils.data import DataLoader, TensorDataset
 
+# Guard for environments where numpy might lack np.dtypes
+if not hasattr(np, "dtypes"):
+    np.dtypes = np.dtype  # type: ignore
+
 from robbuffet import SplitConformalCalibrator
-from robbuffet.data import SimulationDataset
 from robbuffet.scores import GPCPScore, conformal_quantile
 
 try:
@@ -25,59 +25,106 @@ except ImportError as e:  # pragma: no cover - optional dependency
     _sbibm_import_error = e
 else:
     _sbibm_import_error = None
+try:
+    from pyknos.nflows import distributions as distributions_
+    from pyknos.nflows import flows, transforms
+    from pyknos.nflows.nn import nets
+    from sbi.utils.sbiutils import standardizing_net, standardizing_transform, z_score_parser
+    from sbi.utils.torchutils import create_alternating_binary_mask
+    from torch import relu, tensor, uint8
+except ImportError as e:  # pragma: no cover
+    distributions_ = flows = transforms = nets = None
+    _nflows_import_error = e
+else:
+    _nflows_import_error = None
 
 
-class MLP(nn.Module):
-    def __init__(self, d_in: int, d_out: int):
+class ContextSplineMap(nn.Module):
+    """Conditioner for 1D spline when using context as input (from SBI utils)."""
+
+    def __init__(self, in_features: int, out_features: int, hidden_features: int, context_features: int, hidden_layers: int):
         super().__init__()
-        self.net = nn.Sequential(
-            nn.Linear(d_in, 64),
-            nn.ReLU(),
-            nn.Linear(64, 64),
-            nn.ReLU(),
-            nn.Linear(64, d_out),
+        self.hidden_features = hidden_features
+        layers = [nn.Linear(context_features, hidden_features), nn.ReLU()]
+        layers += [nn.Linear(hidden_features, hidden_features), nn.ReLU()] * hidden_layers
+        layers += [nn.Linear(hidden_features, out_features)]
+        self.spline_predictor = nn.Sequential(*layers)
+
+    def forward(self, inputs: torch.Tensor, context: torch.Tensor, *args, **kwargs) -> torch.Tensor:
+        return self.spline_predictor(context)
+
+
+def build_nsf(
+    batch_theta: torch.Tensor,
+    batch_x: torch.Tensor,
+    z_score_theta: str = "independent",
+    z_score_x: str = "independent",
+    hidden_features: int = 50,
+    num_transforms: int = 5,
+    num_bins: int = 10,
+    tail_bound: float = 3.0,
+    hidden_layers_spline_context: int = 1,
+    num_blocks: int = 2,
+    dropout_probability: float = 0.0,
+    use_batch_norm: bool = False,
+) -> nn.Module:
+    """Build Neural Spline Flow q(theta | x)."""
+    theta_numel = batch_theta[0].numel()
+    x_numel = batch_x[0].numel()
+
+    # embedding for context x
+    embedding_net = nn.Identity()
+    y_dim = embedding_net(batch_x[:1]).numel() if hasattr(embedding_net, "__call__") else x_numel
+
+    def mask_in_layer(i):
+        return create_alternating_binary_mask(features=theta_numel, even=(i % 2 == 0))
+
+    if theta_numel == 1:
+        conditioner = partial(
+            ContextSplineMap,
+            hidden_features=hidden_features,
+            context_features=y_dim,
+            hidden_layers=hidden_layers_spline_context,
+        )
+    else:
+        conditioner = partial(
+            nets.ResidualNet,
+            hidden_features=hidden_features,
+            context_features=y_dim,
+            num_blocks=num_blocks,
+            activation=relu,
+            dropout_probability=dropout_probability,
+            use_batch_norm=use_batch_norm,
         )
 
-    def forward(self, x):
-        return self.net(x)
+    transform_list = []
+    for i in range(num_transforms):
+        block = [
+            transforms.PiecewiseRationalQuadraticCouplingTransform(
+                mask=mask_in_layer(i) if theta_numel > 1 else tensor([1], dtype=uint8),
+                transform_net_create_fn=conditioner,
+                num_bins=num_bins,
+                tails="linear",
+                tail_bound=tail_bound,
+                apply_unconditional_transform=False,
+            )
+        ]
+        if theta_numel > 1:
+            block.append(transforms.LULinear(theta_numel, identity_init=True))
+        transform_list += block
 
+    z_theta, structured_theta = z_score_parser(z_score_theta)
+    if z_theta:
+        transform_list = [standardizing_transform(batch_theta, structured_theta)] + transform_list
 
-def build_dataset(train_size=800, cal_size=200, test_size=200, n_items=10, capacity=5.0, seed=0):
-    if sbibm is None:
-        raise ImportError(
-            "sbibm is required for this example. Install with `pip install sbibm`."
-        ) from _sbibm_import_error
+    z_x, structured_x = z_score_parser(z_score_x)
+    if z_x:
+        embedding_net = nn.Sequential(standardizing_net(batch_x, structured_x), embedding_net)
 
-    task = sbibm.get_task("two_moons")
-    prior = task.get_prior()
-    simulator = task.get_simulator()
-    rng = torch.Generator().manual_seed(seed)
-
-    def x_sampler_fn(n: int, _rng: np.random.Generator):
-        # Sample theta and simulate x
-        theta = prior(num_samples=n)
-        x = simulator(theta)
-        return x.numpy()
-
-    def y_sampler_fn(X, _rng: np.random.Generator):
-        # Map latent theta (not directly available) -> approximate via inverse mapping assumption using x features
-        # As a proxy, derive item values from x stats.
-        x_t = torch.as_tensor(X, dtype=torch.float32)
-        mean_feat = x_t.mean(dim=1, keepdim=True)
-        std_feat = x_t.std(dim=1, keepdim=True)
-        base_vals = 5 + 2 * mean_feat + 0.5 * torch.randn((x_t.shape[0], n_items))
-        base_vals = base_vals + std_feat
-        weights = torch.clamp(0.5 + 0.1 * base_vals + 0.05 * torch.randn_like(base_vals), min=0.1)
-        return torch.cat([base_vals, weights], dim=1).numpy()
-
-    return SimulationDataset(
-        x_sampler=x_sampler_fn,
-        y_sampler=y_sampler_fn,
-        train_size=train_size,
-        cal_size=cal_size,
-        test_size=test_size,
-        seed=seed,
-    )
+    base = distributions_.StandardNormal((theta_numel,))
+    transform = transforms.CompositeTransform(transform_list)
+    flow = flows.Flow(transform, base, embedding_net)
+    return flow
 
 
 def solve_nominal(values, weights, capacity):
@@ -114,41 +161,48 @@ def solve_robust(values_centers, radius, weights, capacity):
 
 
 def run_experiment(alpha=0.1, K=8, n_items=10, capacity=5.0, seed=0):
-    dataset = build_dataset(n_items=n_items, capacity=capacity, seed=seed)
+    if sbibm is None:
+        raise ImportError("sbibm is required for this example. Install with `pip install sbibm`.") from _sbibm_import_error
+    if flows is None:
+        raise ImportError("pyknos/nflows is required. Install with `pip install pyknos sbi`.") from _nflows_import_error
 
-    train_loader = DataLoader(dataset.train, batch_size=64, shuffle=True)
-    cal_loader = DataLoader(dataset.calibration, batch_size=64, shuffle=True)
-    test_dataset = dataset.test
+    task = sbibm.get_task("two_moons")
+    prior = task.get_prior()
+    simulator = task.get_simulator()
 
-    model = MLP(d_in=dataset.train.tensors[0].shape[1], d_out=2 * n_items)
-    opt = torch.optim.Adam(model.parameters(), lr=1e-3)
-    loss_fn = nn.MSELoss()
-    model.train()
-    for epoch in range(50):
-        for xb, yb in train_loader:
-            opt.zero_grad()
-            pred = model(xb)
-            loss = loss_fn(pred, yb)
-            loss.backward()
-            opt.step()
+    # Generate data
+    train_theta = prior(num_samples=800)
+    train_x = simulator(train_theta)
+    cal_theta = prior(num_samples=200)
+    cal_x = simulator(cal_theta)
+    test_theta = prior(num_samples=200)
+    test_x = simulator(test_theta)
 
-    # Residual std for sampling
-    model.eval()
-    with torch.no_grad():
-        cal_preds = []
-        cal_true = []
-        for xb, yb in cal_loader:
-            cal_preds.append(model(xb))
-            cal_true.append(yb)
-    cal_preds = torch.cat(cal_preds)
-    cal_true = torch.cat(cal_true)
-    resid_std = (cal_true - cal_preds).std(dim=0, keepdim=True) + 1e-3
+    cache_path = "two_moons_flow.pt"
+    if os.path.exists(cache_path):
+        flow = torch.load(cache_path, map_location="cpu")
+    else:
+        flow = build_nsf(train_theta, train_x, z_score_theta="independent", z_score_x="independent")
+        opt = torch.optim.Adam(flow.parameters(), lr=1e-3)
+        flow.train()
+        train_ds = TensorDataset(train_x, train_theta)
+        train_loader = DataLoader(train_ds, batch_size=64, shuffle=True)
+        for epoch in range(200):
+            for xb, yb in train_loader:
+                opt.zero_grad()
+                loss = -flow.log_prob(inputs=yb, context=xb).mean()
+                loss.backward()
+                opt.step()
+        torch.save(flow, cache_path)
+
+    cal_ds = TensorDataset(cal_x, cal_theta)
+    cal_loader = DataLoader(cal_ds, batch_size=64, shuffle=False)
+    test_ds = TensorDataset(test_x, test_theta)
 
     def sampler(xb: torch.Tensor) -> torch.Tensor:
-        base = model(xb).detach().cpu().numpy()
-        noise = np.random.normal(scale=resid_std.cpu().numpy().squeeze(), size=(K, base.shape[0], base.shape[1]))
-        samples = base[None, ...] + noise
-        return torch.tensor(samples, dtype=torch.float32)
+        with torch.no_grad():
+            samples = flow.sample(num_samples=K, context=xb)
+        return samples  # (K, batch, theta_dim)
 
     score_fn = GPCPScore(sampler)
     calibrator = SplitConformalCalibrator(sampler, score_fn, cal_loader)
@@ -156,16 +210,16 @@ def run_experiment(alpha=0.1, K=8, n_items=10, capacity=5.0, seed=0):
 
     # Calibration curve (optional)
     cal_scores = calibrator.compute_scores(cal_loader).numpy()
-    test_scores = calibrator.compute_scores(DataLoader(test_dataset, batch_size=64)).numpy()
+    test_scores = calibrator.compute_scores(DataLoader(test_ds, batch_size=64)).numpy()
     alphas = np.linspace(0.05, 0.5, num=10)
     coverages = [float(np.mean(test_scores <= conformal_quantile(torch.tensor(cal_scores), a))) for a in alphas]
 
     # Evaluate on first test point
-    x_test, y_test = test_dataset.tensors
+    x_test, y_test = test_ds.tensors
     x0 = x_test[0:1]
     y0 = y_test[0].numpy()
     values_true = y0[:n_items]
-    weights_true = y0[n_items:]
+    weights_true = np.abs(values_true) + 0.5
 
     region = calibrator.predict_region(x0)
     centers = np.stack([r.center for r in region.as_union()])
@@ -173,7 +227,7 @@ def run_experiment(alpha=0.1, K=8, n_items=10, capacity=5.0, seed=0):
 
     mean_pred = centers.mean(axis=0)
     values_pred = mean_pred[:n_items]
-    weights_pred = mean_pred[n_items:]
+    weights_pred = np.abs(values_pred) + 0.5
 
     # Robust and nominal solutions
     x_nom, nominal_obj_pred = solve_nominal(values_pred, weights_pred, capacity)
