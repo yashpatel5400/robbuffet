@@ -30,11 +30,6 @@ from robbuffet.region import L2BallRegion, UnionRegion
 from robbuffet.scores import GPCPScore, conformal_quantile
 
 
-# ---------------------------------------------------------------------------
-# Data utilities
-# ---------------------------------------------------------------------------
-
-
 def build_graph_from_adj(adj_mx: np.ndarray) -> Tuple[nx.DiGraph, list]:
     G = nx.DiGraph()
     N = adj_mx.shape[0]
@@ -69,11 +64,6 @@ def maybe_generate_adj(dcrnn_root: str, adj_path: str):
         raise RuntimeError(f"Failed to generate adj_mx.pkl at {adj_path}") from e
 
 
-# ---------------------------------------------------------------------------
-# DCRNN inference wrapper (expects DCRNN PyTorch repo available)
-# ---------------------------------------------------------------------------
-
-
 def load_predictions(npz_path: str) -> Tuple[np.ndarray, np.ndarray]:
     """
     Load precomputed DCRNN predictions/truth from npz produced by run_demo_pytorch.
@@ -93,11 +83,6 @@ def load_predictions(npz_path: str) -> Tuple[np.ndarray, np.ndarray]:
         pred_h1 = pred_h1[:, None]
         truth_h1 = truth_h1[:, None]
     return pred_h1, truth_h1
-
-
-# ---------------------------------------------------------------------------
-# Robust shortest path solver (flow LP)
-# ---------------------------------------------------------------------------
 
 
 def build_incidence(edges: list, num_nodes: int) -> np.ndarray:
