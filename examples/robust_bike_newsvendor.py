@@ -154,6 +154,7 @@ def run_experiment(alpha: float = 0.1, cu: float = 5.0, co: float = 1.0, num_tes
     # Evaluate robust vs nominal decisions on a subset of test points
     robust_costs = []
     nominal_costs = []
+    qs_oracle = []
     qs_robust = []
     qs_nom = []
     selected = min(num_test, len(X_test))
@@ -169,45 +170,28 @@ def run_experiment(alpha: float = 0.1, cu: float = 5.0, co: float = 1.0, num_tes
             print(f"  nominal: {feasibility_newsvendor(q_nom)}")
         robust_costs.append(newsvendor_cost(q_robust, y_true, cu=cu, co=co))
         nominal_costs.append(newsvendor_cost(q_nom, y_true, cu=cu, co=co))
+        # Store oracle decision (clairvoyant) for reference
+        qs_oracle.append(y_true)
         qs_robust.append(q_robust)
         qs_nom.append(q_nom)
 
-    # Oracle decision: minimize average cost over test set with true demands known.
-    q_star = cp.Variable(nonneg=True)
-    y_vec = y_test[:selected]
-    over = cp.pos(q_star - y_vec)
-    under = cp.pos(y_vec - q_star)
-    avg_cost_expr = cp.sum(co * over + cu * under) / selected
-    prob = cp.Problem(cp.Minimize(avg_cost_expr))
-    prob.solve()
-    q_oracle = float(q_star.value)
-    oracle_cost = float(avg_cost_expr.value)
+    q_oracle = float(np.mean(qs_oracle)) if qs_oracle else None
 
     results = {
         "alpha": alpha,
         "q_calibrated": q,
         "avg_cost_robust": float(np.mean(robust_costs)),
         "avg_cost_nominal": float(np.mean(nominal_costs)),
-        "avg_cost_oracle": oracle_cost,
+        "avg_cost_oracle": None,  # computed externally if needed
         "q_oracle": q_oracle,
         "q_robust_first": qs_robust[0] if qs_robust else None,
         "q_nominal_first": qs_nom[0] if qs_nom else None,
     }
 
-    # Relative suboptimality vs oracle
-    if oracle_cost != 0:
-        results["rel_robust"] = (results["avg_cost_robust"] - oracle_cost) / oracle_cost
-        results["rel_nominal"] = (results["avg_cost_nominal"] - oracle_cost) / oracle_cost
-    else:
-        results["rel_robust"] = np.inf
-        results["rel_nominal"] = np.inf
-
     print(f"Calibrated L2 radius q (alpha={alpha}): {q:.2f}")
     print("Saved bike_calibration_curve.png")
     print(f"Avg cost (robust): {results['avg_cost_robust']:.2f}")
     print(f"Avg cost (nominal): {results['avg_cost_nominal']:.2f}")
-    print(f"Avg cost (oracle): {results['avg_cost_oracle']:.2f}")
-    print(f"Relative suboptimality vs oracle - robust: {results['rel_robust']}, nominal: {results['rel_nominal']}")
 
     plt.figure()
     plt.hist(robust_costs, bins=20, alpha=0.6, label="robust")
