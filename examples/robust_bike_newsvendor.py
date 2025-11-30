@@ -19,7 +19,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from avocet import L2Score, SplitConformalCalibrator, PredictionRegion
+from avocet import L2Score, SplitConformalCalibrator, PredictionRegion, vis
 from avocet.scores import conformal_quantile
 
 
@@ -72,19 +72,14 @@ def calibration_curve(model, score_fn, x_cal, y_cal, x_test, y_test, alphas):
     test_loader = DataLoader(TensorDataset(x_test, y_test), batch_size=64)
     cal = SplitConformalCalibrator(model, score_fn, cal_loader)
     cal_scores = cal.compute_scores(cal_loader).numpy()
-    # compute residuals on test
     with torch.no_grad():
-        residuals = []
-        for xb, yb in test_loader:
-            preds = model(xb)
-            residuals.append(torch.abs(preds - yb).cpu().numpy())
-        residuals = np.concatenate(residuals)
+        test_scores = cal.compute_scores(test_loader).numpy()
     coverages = []
     quantiles = []
     for alpha in alphas:
         q = conformal_quantile(torch.tensor(cal_scores), alpha)
         quantiles.append(q)
-        cov = float(np.mean(residuals <= q))
+        cov = float(np.mean(test_scores <= q))
         coverages.append(cov)
     return np.array(coverages), np.array(quantiles)
 
@@ -147,16 +142,11 @@ def main():
 
     alphas = np.linspace(0.05, 0.5, 10)
     coverages, quantiles = calibration_curve(model, score_fn, x_cal_t, y_cal_t, x_test_t, y_test_t, alphas)
-    x_axis = 1 - alphas
-    plt.figure()
-    plt.plot(x_axis, coverages, marker="o", label="empirical coverage")
-    plt.plot(x_axis, x_axis, "--", label="target coverage")
-    plt.xlabel("1 - alpha")
-    plt.ylabel("coverage on test")
-    plt.title("Calibration curve (Bike Sharing)")
-    plt.legend()
-    plt.tight_layout()
-    plt.savefig("bike_calibration_curve.png", dpi=150)
+    fig, ax = plt.subplots()
+    vis.plot_calibration_curve(alphas, coverages, ax=ax, title="Calibration curve (Bike Sharing)", label="L2")
+    ax.legend()
+    fig.tight_layout()
+    fig.savefig("bike_calibration_curve.png", dpi=150)
     print("Saved bike_calibration_curve.png")
 
     # Evaluate robust vs nominal decisions on a subset of test points

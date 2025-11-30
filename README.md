@@ -110,7 +110,7 @@ print(w.value)
 
 ## Examples
 - `examples/robust_portfolio.py` — conformalized predictor + robust portfolio over synthetic asset returns.
-- `examples/robust_shortest_path.py` — generative predictor + union-of-balls region for robust shortest path.
+- `examples/robust_shortest_path_metrla.py` — robust shortest path on METR-LA with conformalized DCRNN forecasts.
 - `examples/robust_bike_newsvendor.py` — conformal calibration on UCI Bike Sharing demand + robust newsvendor decisions.
 
 Run with `python examples/robust_portfolio.py` (similar for others).
