@@ -38,9 +38,9 @@ class SplitConformalCalibrator:
         self._quantile: Optional[float] = None
 
     @torch.no_grad()
-    def calibrate(self, alpha: float) -> float:
+    def compute_scores(self, data: Iterable[Tuple[torch.Tensor, torch.Tensor]]) -> torch.Tensor:
         scores = []
-        for x, y in self.calibration_data:
+        for x, y in data:
             x = x.to(self.device)
             y = y.to(self.device)
             preds = self.predictor(x)
@@ -50,8 +50,12 @@ class SplitConformalCalibrator:
                 bs = bs.unsqueeze(0)
             scores.append(bs)
         if not scores:
-            raise ValueError("Calibration data is empty.")
-        all_scores = torch.cat(scores).float()
+            raise ValueError("No data provided for score computation.")
+        return torch.cat(scores).float()
+
+    @torch.no_grad()
+    def calibrate(self, alpha: float) -> float:
+        all_scores = self.compute_scores(self.calibration_data)
         self._quantile = conformal_quantile(all_scores, alpha)
         return self._quantile
 

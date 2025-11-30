@@ -160,17 +160,27 @@ class GPCPScore(ScoreFunction):
         # prediction is ignored; sampler produces samples given target's x upstream
         samples = prediction  # reuse argument name for compatibility; caller passes samples
         if samples.dim() == 2:
-            samples = samples.unsqueeze(1)  # (K, 1, d)
-        diffs = samples - target.unsqueeze(0)
+            samples = samples.unsqueeze(-1)  # (K, b, 1)
+        if target.dim() == 1:
+            target_exp = target.unsqueeze(0)
+            if target_exp.dim() < samples.dim():
+                target_exp = target_exp.unsqueeze(-1)
+        else:
+            target_exp = target
+        diffs = samples - target_exp
         norms = torch.norm(diffs, dim=-1)
         min_norm, _ = torch.min(norms, dim=0)
         return min_norm
 
     def build_region(self, prediction: torch.Tensor, quantile: float) -> PredictionRegion:
-        # prediction expected shape (K, d)
         centers = prediction.detach().cpu().numpy()
+        # Handle batch dimension of size 1 if present
+        if centers.ndim == 3 and centers.shape[1] == 1:
+            centers = centers[:, 0, :]
+        if centers.ndim == 2 and centers.shape[1] == 1:
+            centers = centers.reshape(centers.shape[0], 1)
         if centers.ndim == 1:
-            centers = centers.reshape(1, -1)
+            centers = centers.reshape(centers.shape[0], 1)
         regions = [L2BallRegion(center=c, radius=float(quantile)) for c in centers]
         if len(regions) == 1:
             return regions[0]

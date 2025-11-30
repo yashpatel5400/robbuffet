@@ -10,6 +10,7 @@ from typing import Tuple
 
 import cvxpy as cp
 import numpy as np
+import pandas as pd
 import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
@@ -24,18 +25,13 @@ from avocet.scores import conformal_quantile
 from avocet import vis
 
 
-def make_synthetic_data(
-    n: int = 1000,
-    d_x: int = 5,
-    d_theta: int = 2,
-    noise_scale: float = 0.2,
-    seed: int = 0,
-) -> Tuple[torch.Tensor, torch.Tensor]:
-    rng = torch.Generator().manual_seed(seed)
-    x = torch.randn(n, d_x, generator=rng)
-    A = torch.randn(d_x, d_theta, generator=rng)
-    theta = x @ A + noise_scale * torch.randn(n, d_theta, generator=rng)
-    return x, theta
+def load_bike_demand():
+    df = pd.read_csv("data/day.csv")
+    feature_cols = ["season", "mnth", "holiday", "weekday", "workingday", "weathersit", "temp", "atemp", "hum", "windspeed"]
+    x = df[feature_cols].values.astype(np.float32)
+    # two-dimensional demand: casual and registered riders
+    y = df[["casual", "registered"]].values.astype(np.float32)
+    return torch.tensor(x), torch.tensor(y)
 
 
 class MLP(nn.Module):
@@ -114,10 +110,16 @@ def evaluate_solution(w: np.ndarray, region: PredictionRegion, lam: float = 0.1,
 
 def main():
     # data
-    x, theta = make_synthetic_data()
-    x_train, y_train = x[:700], theta[:700]
-    x_cal, y_cal = x[700:900], theta[700:900]
-    x_test, y_test = x[900:], theta[900:]
+    x, theta = load_bike_demand()
+    n = len(x)
+    idx = torch.randperm(n)
+    x = x[idx]
+    theta = theta[idx]
+    n_train = int(0.6 * n)
+    n_cal = int(0.2 * n)
+    x_train, y_train = x[:n_train], theta[:n_train]
+    x_cal, y_cal = x[n_train : n_train + n_cal], theta[n_train : n_train + n_cal]
+    x_test, y_test = x[n_train + n_cal :], theta[n_train + n_cal :]
 
     train_loader = DataLoader(TensorDataset(x_train, y_train), batch_size=64, shuffle=True)
 
