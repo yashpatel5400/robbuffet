@@ -18,7 +18,7 @@ from .region import (
     EllipsoidRegion,
     UnionRegion,
 )
-from .data import BaseDataset, OfflineDataset, GeneratorDataset
+from .data import BaseDataset, OfflineDataset, GeneratorDataset, SimulationDataset
 from .decision import (
     ScenarioRobustOptimizer,
     support_function,
@@ -42,6 +42,7 @@ __all__ = [
     "BaseDataset",
     "OfflineDataset",
     "GeneratorDataset",
+    "SimulationDataset",
     "ScenarioRobustOptimizer",
     "DanskinRobustOptimizer",
     "support_function",
