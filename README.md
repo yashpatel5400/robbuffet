@@ -89,7 +89,7 @@ import cvxpy as cp
 import numpy as np
 import torch
 from torch.utils.data import TensorDataset, DataLoader
-from robbuffet import L2Score, SplitConformalCalibrator, AnalyticRobustSolver
+from robbuffet import L2Score, SplitConformalCalibrator, AffineRobustSolver
 
 # toy predictor
 model = torch.nn.Linear(2, 2)
@@ -111,7 +111,7 @@ def robust_constraints(w):
     # Example affine constraint <w, theta> <= 0.5 for all theta in region
     return [(w, 0.5)]
 
-solver = AnalyticRobustSolver(
+solver = AffineRobustSolver(
     decision_shape=(2,),
     region=region,
     base_objective_fn=base_obj,
@@ -153,6 +153,21 @@ opt = DanskinRobustOptimizer(region, nom_obj=inner, value_and_grad_fn=value_and_
 w_star, _ = opt.solve(w0=np.zeros(2), step_size=0.1, max_iters=100)
 print("Danskin w*:", w_star)
 ```
+
+## When to use AffineRobustSolver
+`AffineRobustSolver` assumes the uncertain parameter enters the problem **affinely**. The robustified optimization has the form:
+
+$$
+\min_{w} \; g(w) + \sup_{\theta \in \mathcal{C}(x)} \langle d(w), \theta \rangle \\
+\text{s.t. } h_i(w) \le 0, \; \langle a_j(w), \theta \rangle \le b_j(w) \;\; \forall \theta \in \mathcal{C}(x).
+$$
+
+Here:
+- \(g(w)\), \(h_i(w)\), \(b_j(w)\) are convex in \(w\).
+- The dependence on \(\theta\) is affine: \(\langle d(w), \theta \rangle\) in the objective and \(\langle a_j(w), \theta \rangle\) in constraints.
+- \(\mathcal{C}(x)\) is the conformal region.
+
+`AffineRobustSolver` replaces the affine \(\theta\) terms with support functions \(h_{\mathcal{C}}(\cdot)\); non-affine \(\theta\) dependence is **not** supported. Use the Danskin or sampling-based approaches when the uncertainty enters non-affinely or the region is nonconvex/union and you prefer gradient-based optimization.
 
 ## Examples
 - `examples/robust_shortest_path_metrla.py` — robust shortest path on METR-LA with conformalized DCRNN_PyTorch forecasts (needs `examples/DCRNN_PyTorch` submodule + predictions NPZ).

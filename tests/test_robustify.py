@@ -1,7 +1,7 @@
 import cvxpy as cp
 import numpy as np
 
-from robbuffet import robustify_affine_leq, support_function, AnalyticRobustSolver
+from robbuffet import robustify_affine_leq, support_function, AffineRobustSolver
 from robbuffet.region import L2BallRegion, LinfBallRegion
 
 
@@ -20,7 +20,7 @@ def test_robust_constraint_linf():
     def base_obj(w_var):
         return cp.norm(w_var, 2)
 
-    solver = AnalyticRobustSolver(
+    solver = AffineRobustSolver(
         decision_shape=(2,),
         region=region,
         base_objective_fn=base_obj,

@@ -48,7 +48,7 @@ def robustify_affine_leq(
     return support_function(region, theta_direction) <= rhs
 
 
-class AnalyticRobustSolver:
+class AffineRobustSolver:
     """
     Wrapper to build and solve a convex robust problem using analytic support functions.
 
