@@ -11,7 +11,7 @@
   - `build_region(prediction, quantile) -> PredictionRegion`
 
 ## Regions
-- Factory methods: `PredictionRegion.l2_ball`, `.l1_ball`, `.linf_ball`, `.ellipsoid`, `.union([...])`
+- Classes: `L2BallRegion`, `L1BallRegion`, `LinfBallRegion`, `EllipsoidRegion`, `UnionRegion`
 - Methods: `sample(n)`, `contains(y)`, `cvxpy_constraints(var)` (convex sets only), `is_convex()`
   - For unions, use support functions (`support_function`) or scenario-based optimization; no single convex constraint is provided.
 
@@ -21,7 +21,9 @@
 - `robustify_affine_leq(theta_direction, rhs, region)`: robust linear inequality.
 - `ScenarioRobustOptimizer(decision_shape, objective_fn, constraints_fn=None, num_samples=128, seed=None)`
   - `build_problem(region, solver=None) -> cp.Problem`
-- `DanskinRobustOptimizer(region, inner_objective_fn, value_and_grad_fn=None, torch_value_fn=None, project_fn=None, solver="ECOS")`
+- `AffineRobustSolver(decision_shape, region, base_objective_fn, theta_direction_fn=None, constraints_fn=None, robust_constraints_fn=None, solver=None)`
+  - `solve() -> (w*, status)`; assumes affine dependence on uncertainty (objective term and optional affine constraints).
+- `DanskinRobustOptimizer(region, nom_obj, value_and_grad_fn=None, torch_value_fn=None, project_fn=None, solver="ECOS")`
   - `solve(w0, step_size=..., max_iters=..., tol=..., verbose=False) -> (w*, history)`
   - Either provide `value_and_grad_fn` (returns value, grad_w) or a PyTorch scalar `torch_value_fn(w_tensor, theta_tensor)` for autograd-based gradients.
 

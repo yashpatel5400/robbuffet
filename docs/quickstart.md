@@ -29,9 +29,9 @@ print("center:", region.center, "radius:", region.radius)
 ```python
 import cvxpy as cp
 import numpy as np
-from robbuffet import PredictionRegion, robustify_affine_leq, robustify_affine_objective
+from robbuffet import L2BallRegion, AffineRobustSolver, robustify_affine_leq, robustify_affine_objective
 
-region = PredictionRegion.l2_ball(center=np.array([0.0, 0.0]), radius=0.5)
+region = L2BallRegion(center=np.array([0.0, 0.0]), radius=0.5)
 w = cp.Variable(2)
 
 constr = robustify_affine_leq(theta_direction=w, rhs=1.0, region=region)
@@ -46,9 +46,9 @@ print("w*:", w.value)
 ```python
 import cvxpy as cp
 import numpy as np
-from robbuffet import ScenarioRobustOptimizer, PredictionRegion
+from robbuffet import ScenarioRobustOptimizer, L1BallRegion
 
-region = PredictionRegion.l1_ball(center=np.array([0.0, 0.0]), radius=0.5)
+region = L1BallRegion(center=np.array([0.0, 0.0]), radius=0.5)
 
 def objective(w, theta):
     return cp.sum_squares(w - theta)

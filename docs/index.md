@@ -5,7 +5,7 @@ Conformal prediction + robust decision making with PyTorch predictors and CVXPY 
 **What it does**
 - Split conformal calibration with geometry-aware scores (L2, L1, Linf, Mahalanobis).
 - Prediction regions (balls, ellipsoids, unions) that can be sampled, visualized, and used in downstream optimization.
-- Deterministic robust counterparts for affine uncertainty and scenario-based robust optimization for general regions.
+- Deterministic robust counterparts for affine uncertainty, scenario-based robust optimization, and gradient-based (Danskin) solvers for unions.
 
 **Getting started**
 - Read the [Quickstart](quickstart.md).
