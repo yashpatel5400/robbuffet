@@ -84,10 +84,10 @@ print("status:", status, "w*:", w_star)
 $\min_{w} \quad g(w) + \sup_{\theta \in \mathcal{C}(x)} \langle d(w), \theta \rangle$  
 $\text{s.t. } h_i(w) \le 0, \quad \langle a_j(w), \theta \rangle \le b_j(w) \quad\quad \forall \theta \in \mathcal{C}(x).$
 
-Here:
-- $g(w)$ is `base_objective_fn(w)`; $h_i(w)$ and $b_j(w)$ come from `constraints_fn`.
-- The dependence on $\theta$ is affine: `theta_direction_fn(w)` corresponds to $d(w)$ in the objective, and each pair $(a_j(w), b_j(w))$ comes from `robust_constraints_fn`.
-- $\mathcal{C}(x)$ is the conformal region returned by `cal.predict_region(...)`.
+Here:  
+- $g(w)$ is `base_objective_fn(w)`; $h_i(w)$ and $b_j(w)$ come from `constraints_fn`.  
+- The dependence on $\theta$ is affine: `theta_direction_fn(w)` corresponds to $d(w)$ in the objective, and each pair $(a_j(w), b_j(w))$ comes from `robust_constraints_fn`.  
+- $\mathcal{C}(x)$ is the conformal region returned by `cal.predict_region(...)`.  
 
 `AffineRobustSolver` replaces the affine $\theta$ terms with support functions $h_{\mathcal{C}}(\cdot)$; non-affine $\theta$ dependence is **not** supported. Use the Danskin or sampling-based approaches when the uncertainty enters non-affinely or the region is nonconvex/union and you prefer gradient-based optimization.
 
