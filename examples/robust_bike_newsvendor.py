@@ -21,7 +21,7 @@ import torch
 from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from robbuffet import L2Score, SplitConformalCalibrator, PredictionRegion, vis, AnalyticSolver
+from robbuffet import L2Score, SplitConformalCalibrator, PredictionRegion, vis, AnalyticRobustSolver
 from robbuffet.scores import conformal_quantile
 
 
@@ -105,7 +105,7 @@ def robust_newsvendor(region: PredictionRegion, cu=5.0, co=1.0):
         cost_ub = co * cp.pos(q - ub) + cu * cp.pos(ub - q)
         return [t_var >= cost_lb, t_var >= cost_ub, q >= 0]
 
-    solver = AnalyticSolver(
+    solver = AnalyticRobustSolver(
         decision_shape=(),
         region=region,
         base_objective_fn=lambda q: t_var,

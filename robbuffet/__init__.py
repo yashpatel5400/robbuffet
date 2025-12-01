@@ -21,7 +21,7 @@ from .region import (
 from .data import BaseDataset, OfflineDataset, SimulationDataset
 from .decision import (
     ScenarioRobustOptimizer,
-    AnalyticSolver,
+    AnalyticRobustSolver,
     support_function,
     robustify_affine_objective,
     robustify_affine_leq,
@@ -45,7 +45,7 @@ __all__ = [
     "SimulationDataset",
     "SimulationDataset",
     "ScenarioRobustOptimizer",
-    "AnalyticSolver",
+    "AnalyticRobustSolver",
     "DanskinRobustOptimizer",
     "support_function",
     "robustify_affine_objective",

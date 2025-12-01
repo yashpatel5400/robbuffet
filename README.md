@@ -89,7 +89,7 @@ import cvxpy as cp
 import numpy as np
 import torch
 from torch.utils.data import TensorDataset, DataLoader
-from robbuffet import L2Score, SplitConformalCalibrator, AnalyticSolver
+from robbuffet import L2Score, SplitConformalCalibrator, AnalyticRobustSolver
 
 # toy predictor
 model = torch.nn.Linear(2, 2)
@@ -107,12 +107,17 @@ def base_obj(w):
 def theta_dir(w):
     return w
 
-solver = AnalyticSolver(
+def robust_constraints(w):
+    # Example affine constraint <w, theta> <= 0.5 for all theta in region
+    return [(w, 0.5)]
+
+solver = AnalyticRobustSolver(
     decision_shape=(2,),
     region=region,
     base_objective_fn=base_obj,
     theta_direction_fn=theta_dir,
     constraints_fn=lambda w: [],
+    robust_constraints_fn=robust_constraints,
 )
 w_star, status = solver.solve()
 print("status:", status, "w*:", w_star)
@@ -144,7 +149,7 @@ def value_and_grad(w_np, theta_np):
     return float(theta_np @ w_np), np.array(theta_np, dtype=float)
 
 project = lambda w_vec: np.clip(w_vec, -1, 1)
-opt = DanskinRobustOptimizer(region, inner_objective_fn=inner, value_and_grad_fn=value_and_grad, project_fn=project)
+opt = DanskinRobustOptimizer(region, nom_obj=inner, value_and_grad_fn=value_and_grad, project_fn=project)
 w_star, _ = opt.solve(w0=np.zeros(2), step_size=0.1, max_iters=100)
 print("Danskin w*:", w_star)
 ```

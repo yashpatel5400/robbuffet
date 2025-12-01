@@ -48,7 +48,7 @@ def robustify_affine_leq(
     return support_function(region, theta_direction) <= rhs
 
 
-class AnalyticSolver:
+class AnalyticRobustSolver:
     """
     Wrapper to build and solve a convex robust problem using analytic support functions.
 
@@ -118,14 +118,14 @@ class DanskinRobustOptimizer:
     def __init__(
         self,
         region: PredictionRegion,
-        inner_objective_fn: Callable[[cp.Variable, np.ndarray], cp.Expression],
+        nom_obj: Callable[[cp.Variable, np.ndarray], cp.Expression],
         value_and_grad_fn: Optional[Callable[[np.ndarray, np.ndarray], tuple[float, np.ndarray]]] = None,
         torch_value_fn: Optional[Callable[[torch.Tensor, torch.Tensor], torch.Tensor]] = None,
         project_fn: Optional[Callable[[np.ndarray], np.ndarray]] = None,
         solver: str = "ECOS",
     ):
         self.region = region
-        self.inner_objective_fn = inner_objective_fn
+        self.nom_obj = nom_obj
         if value_and_grad_fn is None and torch_value_fn is None:
             raise ValueError("Provide either value_and_grad_fn or torch_value_fn.")
         if value_and_grad_fn is None and torch_value_fn is not None:
@@ -164,7 +164,7 @@ class DanskinRobustOptimizer:
             assert best_theta is not None
             return best_theta, best_val
         theta = cp.Variable(region.center.shape)  # type: ignore[attr-defined]
-        obj = cp.Maximize(self.inner_objective_fn(theta, w))
+        obj = cp.Maximize(self.nom_obj(theta, w))
         constraints = region.cvxpy_constraints(theta)
         prob = cp.Problem(obj, constraints)
         prob.solve(solver=self.solver)
