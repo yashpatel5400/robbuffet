@@ -50,7 +50,7 @@ $\text{s.t. } \quad \langle w, x\rangle \le B,\quad 0 \le x \le 1$
 | robust  | 109.58         | 15.56    | t = -9.52, p = 2.682e-06         |
 | nominal | 12112.04       | 3780.02  | –                                |
 
-### Capacity planning (synthetic arrivals, run_trials alpha=0.1, 5 trials)
+### Capacity planning
 
 | method  | mean objective | std    | paired t-test (robust < nominal) |
 |---------|----------------|--------|----------------------------------|
