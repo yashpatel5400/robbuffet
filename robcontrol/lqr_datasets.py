@@ -29,7 +29,7 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from robbuffet import OfflineDataset, OperatorNormScore, SplitConformalCalibrator
-from robcontrol.controllers import CPCController, HInfinityController
+from robcontrol.controllers import CPCController
 from robcontrol.utils import solve_discrete_lqr
 
 
@@ -356,119 +356,8 @@ def compute_calibration_curve(
     return alphas, np.array(coverages)
 
 
-def evaluate_controllers(
-    model: nn.Module,
-    task: LQRTask,
-    test_loader: Iterable,
-    horizon: int = 200,
-    rollouts: int = 5,
-    process_noise_std: float = 0.0,
-    control_noise_std: float = 0.0,
-    seed: int | None = None,
-) -> Dict[str, float]:
-    """
-    For each test theta, synthesize:
-      - K_true: optimal for true (A, B) via ARE.
-      - K_hat: optimal for predicted (Â,  B̂) from the model.
-      - K_hinf: H-infinity baseline synthesized on predicted dynamics.
-    Evaluate on true dynamics and report mean costs.
-    """
-    rng = np.random.default_rng(seed)
-    mat_shape = (task.state_dim, task.state_dim + task.control_dim)
-    costs_true = []
-    costs_hat_on_true = []
-    costs_hinf_on_true = []
-    costs_cpc_on_true = []
-    h_inf_ctrl = HInfinityController()
-    cpc_ctrl = CPCController(task.q, task.r, config=None)
-    model.eval()
-    with torch.no_grad():
-        for theta, C_flat in test_loader:
-            theta = theta.to(dtype=torch.float32)
-            C_true = C_flat.numpy().reshape(mat_shape)
-            A_true = C_true[:, : task.state_dim]
-            B_true = C_true[:, task.state_dim :]
-            # Predict dynamics and synthesize nominal controller
-            C_pred = model(theta).detach().numpy().reshape(mat_shape)
-            A_hat = C_pred[:, : task.state_dim]
-            B_hat = C_pred[:, task.state_dim :]
-            K_true = solve_discrete_lqr(A_true, B_true, task.q, task.r)
-            K_hat = solve_discrete_lqr(A_hat, B_hat, task.q, task.r)
-            K_hinf = h_inf_ctrl.synthesize(A_hat, B_hat, task.q, task.r)
-            K_cpc = cpc_ctrl.synthesize(A_hat, B_hat, task.q, task.r)
-            # Rollout multiple times to mitigate noise variance
-            run_costs_true = []
-            run_costs_hat_on_true = []
-            run_costs_hinf_on_true = []
-            run_costs_cpc_on_true = []
-            for _ in range(rollouts):
-                x0 = rng.normal(scale=0.1, size=task.state_dim)
-                run_costs_true.append(
-                    rollout_cost(
-                        A_true,
-                        B_true,
-                        K_true,
-                        task.q,
-                        task.r,
-                        horizon=horizon,
-                        rng=rng,
-                        x0=x0,
-                        process_noise_std=process_noise_std,
-                        control_noise_std=control_noise_std,
-                    )
-                )
-                run_costs_hat_on_true.append(
-                    rollout_cost(
-                        A_true,
-                        B_true,
-                        K_hat,
-                        task.q,
-                        task.r,
-                        horizon=horizon,
-                        rng=rng,
-                        x0=x0,
-                        process_noise_std=process_noise_std,
-                        control_noise_std=control_noise_std,
-                    )
-                )
-                run_costs_hinf_on_true.append(
-                    rollout_cost(
-                        A_true,
-                        B_true,
-                        K_hinf,
-                        task.q,
-                        task.r,
-                        horizon=horizon,
-                        rng=rng,
-                        x0=x0,
-                        process_noise_std=process_noise_std,
-                        control_noise_std=control_noise_std,
-                    )
-                )
-                run_costs_cpc_on_true.append(
-                    rollout_cost(
-                        A_true,
-                        B_true,
-                        K_cpc,
-                        task.q,
-                        task.r,
-                        horizon=horizon,
-                        rng=rng,
-                        x0=x0,
-                        process_noise_std=process_noise_std,
-                        control_noise_std=control_noise_std,
-                    )
-                )
-            costs_true.append(np.mean(run_costs_true))
-            costs_hat_on_true.append(np.mean(run_costs_hat_on_true))
-            costs_hinf_on_true.append(np.mean(run_costs_hinf_on_true))
-            costs_cpc_on_true.append(np.mean(run_costs_cpc_on_true))
-    return {
-        "mean_cost_true_opt_on_true": float(np.mean(costs_true)),
-        "mean_cost_hat_on_true": float(np.mean(costs_hat_on_true)),
-        "mean_cost_hinf_on_true": float(np.mean(costs_hinf_on_true)),
-        "mean_cost_cpc_on_true": float(np.mean(costs_cpc_on_true)),
-    }
+def evaluate_controllers(*args, **kwargs):
+    raise RuntimeError("Use robcontrol/assess.py instead; lqr_datasets.py is superseded.")
 
 
 def main():
@@ -480,6 +369,12 @@ def main():
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--out", default="calibration_curve.png")
     parser.add_argument("--eval", action="store_true", help="Also evaluate controllers (true vs predicted) on test set.")
+    parser.add_argument(
+        "--robust-on-true",
+        action="store_true",
+        default=True,
+        help="Synthesize robust baselines (Hinf/CPC) on true dynamics instead of predicted.",
+    )
     args = parser.parse_args()
 
     records = generate_lqr_dataset(
@@ -518,6 +413,7 @@ def main():
             process_noise_std=0.0,
             control_noise_std=0.0,
             seed=args.seed + 1,
+            robust_on_true=args.robust_on_true,
         )
         print("Controller evaluation (mean finite-horizon cost):")
         for k, v in stats.items():
