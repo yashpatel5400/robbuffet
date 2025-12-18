@@ -69,7 +69,7 @@ def compute_calibration_curve(model, score_fn, cal_loader, test_loader, mat_shap
     return alphas, np.array(coverages)
 
 
-def evaluate(
+def evaluate_once(
     model,
     task_meta,
     test_loader: Iterable,
@@ -77,6 +77,7 @@ def evaluate(
     rollouts: int,
     process_noise_std: float = 0.0,
     control_noise_std: float = 0.0,
+    seed: int = 0,
 ) -> Dict[str, float]:
     state_dim = task_meta["state_dim"]
     control_dim = task_meta["control_dim"]
@@ -85,7 +86,7 @@ def evaluate(
     costs_hat_on_true = []
     costs_cpc_on_true = []
     cpc_ctrl = CPCController(np.array(task_meta["q"]), np.array(task_meta["r"]), config=None)
-    rng = np.random.default_rng(task_meta.get("seed", 0) + 123)
+    rng = np.random.default_rng(seed)
 
     with torch.no_grad():
         for theta, C_flat in test_loader:
@@ -158,6 +159,50 @@ def evaluate(
     }
 
 
+def evaluate(
+    model,
+    task_meta,
+    test_loader: Iterable,
+    horizon: int,
+    rollouts: int,
+    trials: int = 1,
+    process_noise_std: float = 0.0,
+    control_noise_std: float = 0.0,
+) -> Dict[str, float]:
+    robust_vals: List[float] = []
+    nominal_vals: List[float] = []
+    true_vals: List[float] = []
+    for t in range(trials):
+        stats = evaluate_once(
+            model,
+            task_meta,
+            test_loader,
+            horizon=horizon,
+            rollouts=rollouts,
+            process_noise_std=process_noise_std,
+            control_noise_std=control_noise_std,
+            seed=task_meta.get("seed", 0) + t,
+        )
+        true_vals.append(stats["mean_cost_true_opt_on_true"])
+        nominal_vals.append(stats["mean_cost_hat_on_true"])
+        robust_vals.append(stats["mean_cost_cpc_on_true"])
+    metrics = {
+        "true_opt_on_true": {"mean": float(np.mean(true_vals)), "std": float(np.std(true_vals))},
+        "nominal_on_true": {"mean": float(np.mean(nominal_vals)), "std": float(np.std(nominal_vals))},
+        "cpc_on_true": {"mean": float(np.mean(robust_vals)), "std": float(np.std(robust_vals))},
+    }
+    # Paired t-test (robust < nominal)
+    try:
+        from scipy import stats
+
+        if trials > 1:
+            t_stat, p_val = stats.ttest_rel(robust_vals, nominal_vals, alternative="less")
+            metrics["paired_ttest_robust_lt_nominal"] = {"t": float(t_stat), "p": float(p_val)}
+    except Exception:
+        metrics["paired_ttest_robust_lt_nominal"] = {"t": None, "p": None}
+    return metrics
+
+
 def main():
     parser = argparse.ArgumentParser(description="Assess nominal vs CPC controllers using predicted dynamics.")
     parser.add_argument("--dataset", required=True)
@@ -167,6 +212,7 @@ def main():
     parser.add_argument("--horizon", type=int, default=200)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--rollouts", type=int, default=5)
+    parser.add_argument("--trials", type=int, default=1)
     parser.add_argument("--process-noise-std", type=float, default=0.0)
     parser.add_argument("--control-noise-std", type=float, default=0.0)
     parser.add_argument("--calib-out", default=None, help="Path to save calibration plot.")
@@ -204,6 +250,7 @@ def main():
         test_loader,
         horizon=args.horizon,
         rollouts=args.rollouts,
+        trials=args.trials,
         process_noise_std=args.process_noise_std,
         control_noise_std=args.control_noise_std,
     )

@@ -34,12 +34,24 @@ python robcontrol/assess.py \
   --model robcontrol/artifacts/cartpole_model.pt \
   --meta robcontrol/artifacts/cartpole_meta.json \
   --horizon 200 \
+  --trials 5 \
   --rollouts 5 \
   --seed 0
 ```
 Outputs:
 - Calibration plot: `<dataset>_calibration.png`
-- Metrics JSON: `<dataset>_metrics.json` (mean finite-horizon costs for true-optimal, nominal-on-true, CPC-on-true).
+- Metrics JSON: `<dataset>_metrics.json` (means/stds; paired t-test robust< nominal when trials > 1).
+
+## Sample Results
+
+Cartpole (500 samples, horizon 200, rollouts 5, trials 5):
+
+| method                | mean cost | std    |
+|-----------------------|-----------|--------|
+| true_opt_on_true      | 132.28    | 9.10   |
+| nominal_on_true       | 3353.10   | 456.71 |
+| cpc_on_true           | 3353.08   | 456.70 |
+| t-test (robust < nom) | t = -4.18 | p=0.007 |
 
 ## Notes
 - Scripts prepend the repo root to `PYTHONPATH`; run them from the repo root.

@@ -216,13 +216,6 @@ This package is built atop a line of academic work developing the conformal deci
   organization={PMLR}
 }
 
-@article{patel2024conformal,
-  title={Conformal robust control of linear systems},
-  author={Patel, Yash and Rayan, Sahana and Tewari, Ambuj},
-  journal={arXiv preprint arXiv:2405.16250},
-  year={2024}
-}
-
 @inproceedings{patel2024variational,
   title={Variational Inference with Coverage Guarantees in Simulation-Based Inference},
   author={Patel, Yash and Mcnamara, Declan and Loper, Jackson and Regier, Jeffrey and Tewari, Ambuj},
@@ -230,5 +223,12 @@ This package is built atop a line of academic work developing the conformal deci
   pages={39861--39888},
   year={2024},
   organization={PMLR}
+}
+
+@article{patel2024conformal,
+  title={Conformal robust control of linear systems},
+  author={Patel, Yash and Rayan, Sahana and Tewari, Ambuj},
+  journal={arXiv preprint arXiv:2405.16250},
+  year={2024}
 }
 ```
