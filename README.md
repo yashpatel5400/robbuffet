@@ -223,10 +223,12 @@ This package is built atop a line of academic work developing the conformal deci
   year={2024}
 }
 
-@article{patel2023variational,
-  title={Variational inference with coverage guarantees in simulation-based inference},
-  author={Patel, Yash and McNamara, Declan and Loper, Jackson and Regier, Jeffrey and Tewari, Ambuj},
-  journal={arXiv preprint arXiv:2305.14275},
-  year={2023}
+@inproceedings{patel2024variational,
+  title={Variational Inference with Coverage Guarantees in Simulation-Based Inference},
+  author={Patel, Yash and Mcnamara, Declan and Loper, Jackson and Regier, Jeffrey and Tewari, Ambuj},
+  booktitle={International Conference on Machine Learning},
+  pages={39861--39888},
+  year={2024},
+  organization={PMLR}
 }
 ```
