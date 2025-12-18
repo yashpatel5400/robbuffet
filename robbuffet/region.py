@@ -305,3 +305,51 @@ class UnionRegion(PredictionRegion):
 
 def _ball_volume_unit(d: int) -> float:
     return math.pi ** (d / 2) / math.gamma(d / 2 + 1)
+
+
+class OperatorNormBallRegion(PredictionRegion):
+    """
+    Spectral-norm ball around a matrix center.
+    Useful for dynamics matrices C = [A, B].
+    """
+
+    def __init__(self, center: np.ndarray, radius: float):
+        self.center = center
+        self.radius = float(radius)
+
+    @property
+    def name(self) -> str:
+        return "operator_norm_ball"
+
+    def sample(self, n: int, rng: Optional[np.random.Generator] = None) -> np.ndarray:
+        rng = rng or np.random.default_rng()
+        samples = []
+        for _ in range(n):
+            raw = rng.standard_normal(size=self.center.shape)
+            u, _, vh = np.linalg.svd(raw, full_matrices=False)
+            direction = u @ vh  # spectral norm 1
+            scale = rng.random() ** (1.0 / np.prod(self.center.shape))
+            samples.append(self.center + self.radius * scale * direction)
+        return np.stack(samples, axis=0)
+
+    def contains(self, y: np.ndarray) -> bool:
+        return float(np.linalg.norm(y - self.center, ord=2)) <= self.radius + 1e-8
+
+    def cvxpy_constraints(
+        self, theta_var: "cp.Variable", theta_bounds: Optional[Tuple[np.ndarray, np.ndarray]] = None
+    ) -> List["cp.Constraint"]:
+        if cp is None:
+            raise ImportError("cvxpy is required for constraint generation.")
+        return [cp.norm(theta_var - self.center, 2) <= self.radius]
+
+    def is_convex(self) -> bool:
+        return True
+
+    def support_function(self, direction) -> "cp.Expression":
+        if cp is None:
+            raise ImportError("cvxpy is required for support_function.")
+        if not isinstance(direction, cp.Expression):
+            direction = cp.Constant(direction)
+        base = cp.sum(cp.multiply(direction, self.center))
+        # Dual norm of spectral is nuclear
+        return base + self.radius * cp.norm(direction, "nuc")

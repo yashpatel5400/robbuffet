@@ -8,7 +8,7 @@ Exposes:
 - Scenario-based or deterministic robust decision-making helpers.
 """
 
-from .scores import L1Score, L2Score, LinfScore, MahalanobisScore, ScoreFunction
+from .scores import L1Score, L2Score, LinfScore, MahalanobisScore, OperatorNormScore, ScoreFunction
 from .calibration import SplitConformalCalibrator
 from .region import (
     PredictionRegion,
@@ -17,6 +17,7 @@ from .region import (
     LinfBallRegion,
     EllipsoidRegion,
     UnionRegion,
+    OperatorNormBallRegion,
 )
 from .data import BaseDataset, OfflineDataset, SimulationDataset
 from .decision import (
@@ -32,6 +33,7 @@ __all__ = [
     "L2Score",
     "LinfScore",
     "MahalanobisScore",
+    "OperatorNormScore",
     "ScoreFunction",
     "SplitConformalCalibrator",
     "PredictionRegion",
@@ -40,6 +42,7 @@ __all__ = [
     "LinfBallRegion",
     "EllipsoidRegion",
     "UnionRegion",
+    "OperatorNormBallRegion",
     "BaseDataset",
     "OfflineDataset",
     "SimulationDataset",

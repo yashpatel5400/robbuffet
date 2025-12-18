@@ -13,6 +13,7 @@ from .region import (
     LinfBallRegion,
     PredictionRegion,
     UnionRegion,
+    OperatorNormBallRegion,
 )
 
 
@@ -136,6 +137,37 @@ class MahalanobisScore(ScoreFunction):
         if center.ndim == 0:
             center = center.reshape(1)
         return EllipsoidRegion(center=center, shape_matrix=self.weight, radius=float(quantile))
+
+
+class OperatorNormScore(ScoreFunction):
+    """
+    Matrix spectral norm residual score for dynamics matrices C = [A, B].
+    Expects flattened matrices of shape (batch, state_dim * (state_dim + control_dim)).
+    """
+
+    def __init__(self, state_dim: int, control_dim: int):
+        self.state_dim = state_dim
+        self.control_dim = control_dim
+        self.mat_cols = state_dim + control_dim
+
+    @property
+    def name(self) -> str:
+        return "operator_norm"
+
+    def _reshape(self, tensor: torch.Tensor) -> torch.Tensor:
+        if tensor.dim() == 1:
+            tensor = tensor.unsqueeze(0)
+        return tensor.view(tensor.shape[0], self.state_dim, self.mat_cols)
+
+    def score(self, prediction: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
+        pred_mat = self._reshape(prediction)
+        tgt_mat = self._reshape(target)
+        diff = pred_mat - tgt_mat
+        return torch.linalg.matrix_norm(diff, ord=2)
+
+    def build_region(self, prediction: torch.Tensor, quantile: float) -> PredictionRegion:
+        center = prediction.detach().cpu().numpy().reshape(self.state_dim, self.mat_cols)
+        return OperatorNormBallRegion(center=center, radius=float(quantile))
 
 
 class GPCPScore(ScoreFunction):
