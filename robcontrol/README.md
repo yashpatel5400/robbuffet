@@ -53,6 +53,15 @@ Cartpole (500 samples, horizon 200, rollouts 5, trials 5):
 | cpc_on_true           | 3353.08   | 456.70 |
 | t-test (robust < nom) | t = -4.18 | p=0.007 |
 
+Mass-spring-damper (500 samples, horizon 200, rollouts 5, trials 5):
+
+| method                | mean cost | std   |
+|-----------------------|-----------|-------|
+| true_opt_on_true      | 5.97      | 0.48  |
+| nominal_on_true       | 8.98      | 0.81  |
+| cpc_on_true           | 8.98      | 0.81  |
+| t-test (robust < nom) | t = -14.22| p=7.1e-05 |
+
 ## Notes
 - Scripts prepend the repo root to `PYTHONPATH`; run them from the repo root.
 - CPC controller lives in `robcontrol/controllers/cpc.py`. Utilities for LQR/Riccati/rollouts are in `robcontrol/utils.py`.
