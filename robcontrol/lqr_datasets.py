@@ -28,7 +28,9 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
-from robbuffet import OperatorNormScore, SplitConformalCalibrator
+from robbuffet import OfflineDataset, OperatorNormScore, SplitConformalCalibrator
+from robcontrol.controllers import CPCController, HInfinityController
+from robcontrol.utils import solve_discrete_lqr
 
 
 Array = np.ndarray
@@ -51,26 +53,6 @@ def _forward_euler_discretize(A_c: Array, B_c: Array, dt: float) -> Tuple[Array,
     """Simple zero-order hold using forward Euler; sufficient for small dt."""
     n = A_c.shape[0]
     return np.eye(n) + dt * A_c, dt * B_c
-
-
-def _solve_discrete_lqr(
-    A: Array, B: Array, Q: Array, R: Array, max_iters: int = 500, tol: float = 1e-8
-) -> Array:
-    """
-    Iterative solution to the discrete-time algebraic Riccati equation using only numpy.
-    Returns feedback gain K (m x n) such that u = -K x.
-    """
-    P = Q.copy()
-    for _ in range(max_iters):
-        BT_P = B.T @ P
-        G = R + BT_P @ B
-        K = np.linalg.solve(G, BT_P @ A)
-        P_next = A.T @ P @ A - A.T @ P @ B @ K + Q
-        if np.linalg.norm(P_next - P, ord="fro") < tol:
-            P = P_next
-            break
-        P = P_next
-    return K
 
 
 def simulate_rollout(
@@ -266,7 +248,7 @@ def generate_lqr_dataset(
         theta = task.sample_theta(rng)
         A_c, B_c = task.continuous_dynamics(theta)
         A_d, B_d = _forward_euler_discretize(A_c, B_c, task.dt)
-        K = _solve_discrete_lqr(A_d, B_d, task.q, task.r)
+        K = solve_discrete_lqr(A_d, B_d, task.q, task.r)
 
         x0 = rng.normal(scale=0.05, size=task.state_dim)
         xs, us = simulate_rollout(
@@ -304,21 +286,18 @@ def _stack_records(records: List[Dict[str, Array]]) -> Tuple[Array, Array]:
 
 
 def _make_loaders(
-    thetas: Array, Cs: Array, batch_size: int = 64
+    thetas: Array, Cs: Array, batch_size: int = 64, seed: int = 0
 ) -> Tuple[DataLoader, DataLoader, DataLoader]:
+    """Build loaders using robbuffet.OfflineDataset for consistent splitting."""
     n = thetas.shape[0]
-    idx_train = int(0.6 * n)
-    idx_cal = int(0.8 * n)
-    theta_t = torch.tensor(thetas, dtype=torch.float32)
-    C_flat = torch.tensor(Cs.reshape(n, -1), dtype=torch.float32)
-    train_ds = TensorDataset(theta_t[:idx_train], C_flat[:idx_train])
-    cal_ds = TensorDataset(theta_t[idx_train:idx_cal], C_flat[idx_train:idx_cal])
-    test_ds = TensorDataset(theta_t[idx_cal:], C_flat[idx_cal:])
-    return (
-        DataLoader(train_ds, batch_size=batch_size, shuffle=True),
-        DataLoader(cal_ds, batch_size=batch_size, shuffle=False),
-        DataLoader(test_ds, batch_size=1, shuffle=False),
-    )
+    C_flat = Cs.reshape(n, -1)
+    thetas = thetas.astype(np.float32)
+    C_flat = C_flat.astype(np.float32)
+    offline = OfflineDataset(thetas, C_flat, train_frac=0.6, cal_frac=0.2, seed=seed, shuffle=True)
+    train_loader = DataLoader(offline.train, batch_size=batch_size, shuffle=True)
+    cal_loader = DataLoader(offline.calibration, batch_size=batch_size, shuffle=False)
+    test_loader = DataLoader(offline.test, batch_size=1, shuffle=False)
+    return train_loader, cal_loader, test_loader
 
 
 class DynamicsMLP(nn.Module):
@@ -342,8 +321,8 @@ def train_predictor(model: nn.Module, loader: DataLoader, epochs: int = 300, lr:
     loss_fn = nn.MSELoss()
     for _ in range(epochs):
         for theta, C_flat in loader:
-            theta = theta.to(device)
-            C_flat = C_flat.to(device)
+            theta = theta.to(device=device, dtype=torch.float32)
+            C_flat = C_flat.to(device=device, dtype=torch.float32)
             pred = model(theta)
             loss = loss_fn(pred, C_flat)
             opt.zero_grad()
@@ -367,6 +346,7 @@ def compute_calibration_curve(
         hits = 0
         total = 0
         for theta, C_flat in test_loader:
+            theta = theta.to(dtype=torch.float32)
             region = cal.predict_region(theta)
             C_true = C_flat.numpy().reshape(mat_shape)
             if region.contains(C_true):
@@ -390,17 +370,21 @@ def evaluate_controllers(
     For each test theta, synthesize:
       - K_true: optimal for true (A, B) via ARE.
       - K_hat: optimal for predicted (Â,  B̂) from the model.
-    Evaluate both on true dynamics and report mean costs.
+      - K_hinf: H-infinity baseline synthesized on predicted dynamics.
+    Evaluate on true dynamics and report mean costs.
     """
     rng = np.random.default_rng(seed)
     mat_shape = (task.state_dim, task.state_dim + task.control_dim)
     costs_true = []
     costs_hat_on_true = []
-    costs_hat_on_hat = []
+    costs_hinf_on_true = []
+    costs_cpc_on_true = []
+    h_inf_ctrl = HInfinityController()
+    cpc_ctrl = CPCController(task.q, task.r, config=None)
     model.eval()
     with torch.no_grad():
         for theta, C_flat in test_loader:
-            theta_np = theta.numpy()
+            theta = theta.to(dtype=torch.float32)
             C_true = C_flat.numpy().reshape(mat_shape)
             A_true = C_true[:, : task.state_dim]
             B_true = C_true[:, task.state_dim :]
@@ -408,11 +392,15 @@ def evaluate_controllers(
             C_pred = model(theta).detach().numpy().reshape(mat_shape)
             A_hat = C_pred[:, : task.state_dim]
             B_hat = C_pred[:, task.state_dim :]
-            K_true = _solve_discrete_lqr(A_true, B_true, task.q, task.r)
-            K_hat = _solve_discrete_lqr(A_hat, B_hat, task.q, task.r)
+            K_true = solve_discrete_lqr(A_true, B_true, task.q, task.r)
+            K_hat = solve_discrete_lqr(A_hat, B_hat, task.q, task.r)
+            K_hinf = h_inf_ctrl.synthesize(A_hat, B_hat, task.q, task.r)
+            K_cpc = cpc_ctrl.synthesize(A_hat, B_hat, task.q, task.r)
             # Rollout multiple times to mitigate noise variance
             run_costs_true = []
             run_costs_hat_on_true = []
+            run_costs_hinf_on_true = []
+            run_costs_cpc_on_true = []
             for _ in range(rollouts):
                 x0 = rng.normal(scale=0.1, size=task.state_dim)
                 run_costs_true.append(
@@ -443,11 +431,43 @@ def evaluate_controllers(
                         control_noise_std=control_noise_std,
                     )
                 )
+                run_costs_hinf_on_true.append(
+                    rollout_cost(
+                        A_true,
+                        B_true,
+                        K_hinf,
+                        task.q,
+                        task.r,
+                        horizon=horizon,
+                        rng=rng,
+                        x0=x0,
+                        process_noise_std=process_noise_std,
+                        control_noise_std=control_noise_std,
+                    )
+                )
+                run_costs_cpc_on_true.append(
+                    rollout_cost(
+                        A_true,
+                        B_true,
+                        K_cpc,
+                        task.q,
+                        task.r,
+                        horizon=horizon,
+                        rng=rng,
+                        x0=x0,
+                        process_noise_std=process_noise_std,
+                        control_noise_std=control_noise_std,
+                    )
+                )
             costs_true.append(np.mean(run_costs_true))
             costs_hat_on_true.append(np.mean(run_costs_hat_on_true))
+            costs_hinf_on_true.append(np.mean(run_costs_hinf_on_true))
+            costs_cpc_on_true.append(np.mean(run_costs_cpc_on_true))
     return {
         "mean_cost_true_opt_on_true": float(np.mean(costs_true)),
         "mean_cost_hat_on_true": float(np.mean(costs_hat_on_true)),
+        "mean_cost_hinf_on_true": float(np.mean(costs_hinf_on_true)),
+        "mean_cost_cpc_on_true": float(np.mean(costs_cpc_on_true)),
     }
 
 
@@ -470,7 +490,7 @@ def main():
     )
     thetas, Cs = _stack_records(records)
     task = TASKS[args.task]
-    train_loader, cal_loader, test_loader = _make_loaders(thetas, Cs)
+    train_loader, cal_loader, test_loader = _make_loaders(thetas, Cs, seed=args.seed)
 
     out_dim = Cs.shape[1] * Cs.shape[2]
     model = DynamicsMLP(theta_dim=task.theta_dim, out_dim=out_dim)
