@@ -203,3 +203,30 @@ If you use Robbuffet in academic work, please cite:
   url = {https://github.com/yashpatel5400/robbuffet}
 }
 ```
+
+This package is built atop a line of academic work developing the conformal decision-making framework. For the original academic works, refer to the following works:
+
+```
+@inproceedings{patel2024conformal,
+  title={Conformal contextual robust optimization},
+  author={Patel, Yash P and Rayan, Sahana and Tewari, Ambuj},
+  booktitle={International Conference on Artificial Intelligence and Statistics},
+  pages={2485--2493},
+  year={2024},
+  organization={PMLR}
+}
+
+@article{patel2024conformal,
+  title={Conformal robust control of linear systems},
+  author={Patel, Yash and Rayan, Sahana and Tewari, Ambuj},
+  journal={arXiv preprint arXiv:2405.16250},
+  year={2024}
+}
+
+@article{patel2023variational,
+  title={Variational inference with coverage guarantees in simulation-based inference},
+  author={Patel, Yash and McNamara, Declan and Loper, Jackson and Regier, Jeffrey and Tewari, Ambuj},
+  journal={arXiv preprint arXiv:2305.14275},
+  year={2023}
+}
+```
