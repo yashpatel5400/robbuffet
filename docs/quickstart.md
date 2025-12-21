@@ -2,6 +2,11 @@
 
 ## Install
 ```bash
+pip install robbuffet
+```
+
+For development (tests, build, publishing):
+```bash
 pip install -e .[dev]
 ```
 

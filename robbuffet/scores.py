@@ -221,16 +221,9 @@ class GPCPScore(ScoreFunction):
 
 def conformal_quantile(scores: torch.Tensor, alpha: float) -> float:
     """
-    Compute the split-conformal quantile with finite-sample correction.
-
-    Quantile index k = ceil((n + 1) * (1 - alpha)) - 1 over sorted scores.
+    Compute the (1 - alpha) quantile of calibration scores using NumPy.
     """
-    if scores.ndim != 1:
-        scores = scores.reshape(-1)
-    n = scores.numel()
-    if n == 0:
+    scores_np = scores.detach().cpu().numpy().reshape(-1)
+    if scores_np.size == 0:
         raise ValueError("No calibration scores provided.")
-    k = int(np.ceil((n + 1) * (1 - alpha)) - 1)
-    k = min(max(k, 0), n - 1)
-    sorted_scores = torch.sort(scores)[0]
-    return float(sorted_scores[k].item())
+    return float(np.quantile(scores_np, 1 - alpha))

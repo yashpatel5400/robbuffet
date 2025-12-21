@@ -8,7 +8,7 @@
 Conformal prediction + robust decision making with PyTorch predictors and CVXPY optimizers.
 
 ## Install
-- From PyPI (once published):
+- From PyPI:
   ```bash
   pip install robbuffet
   ```
