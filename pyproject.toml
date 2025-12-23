@@ -1,6 +1,6 @@
 [project]
 name = "robbuffet"
-version = "0.1.1"
+version = "0.2"
 description = "Conformal prediction and robust decision-making toolkit (PyTorch + CVXPY)"
 authors = [{ name = "Yash Patel" }]
 readme = "README.md"

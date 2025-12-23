@@ -5,7 +5,15 @@
 [![CI](https://github.com/yashpatel5400/robbuffet/actions/workflows/ci.yml/badge.svg)](https://github.com/yashpatel5400/robbuffet/actions/workflows/ci.yml)
 [![Docs](https://github.com/yashpatel5400/robbuffet/actions/workflows/docs.yml/badge.svg)](https://ypatel.io/robbuffet/)
 
-Conformal prediction + robust decision making with PyTorch predictors and CVXPY optimizers.
+Conformal prediction + robust decision making with PyTorch predictors and CVXPY optimizers. 
+
+A walkthrough of the conformal ensemble method is available on YouTube:
+
+<p align="center">
+  <a href="https://www.youtube.com/watch?v=EYgh6XcLpA0" target="_blank" rel="noopener noreferrer">
+    <img src="https://img.youtube.com/vi/EYgh6XcLpA0/0.jpg" alt="Conformal Ensembles tutorial video" width="640">
+  </a>
+</p>
 
 ## Install
 - From PyPI:
