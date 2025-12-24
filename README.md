@@ -7,7 +7,7 @@
 
 Conformal prediction + robust decision making with PyTorch predictors and CVXPY optimizers. 
 
-A walkthrough of the conformal ensemble method is available on YouTube:
+A walkthrough of the conformal decision-making framework is available on YouTube:
 
 <p align="center">
   <a href="https://www.youtube.com/watch?v=EYgh6XcLpA0" target="_blank" rel="noopener noreferrer">
